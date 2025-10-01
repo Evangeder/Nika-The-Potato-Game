@@ -69,6 +69,8 @@
     const rotateOverlay = document.getElementById('rotateOverlay');
     const beginBtn = document.getElementById('beginBtn');
     const dpadEl = document.querySelector('.dpad');
+    const controlsEl = document.getElementById('controls');
+    const menuEl = document.querySelector('.menu');
 
     const Input = { up:false, down:false, left:false, right:false, a:false, b:false, start:false, select:false };
     const KeyMap = { 'ArrowUp':'up','ArrowDown':'down','ArrowLeft':'left','ArrowRight':'right','z':'a','Z':'a','x':'b','X':'b','Enter':'start','Shift':'select' };
@@ -412,6 +414,20 @@
     const dialogNameEl = dialogEl.querySelector('.name');
     const dialogTextEl = dialogEl.querySelector('.text');
 
+    function positionDialog() {
+      if (!dialogEl) return;
+      const vvH = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+
+      // Preferuj top `.menu` (Select/Start). Fallback: top całych controls.
+      const refRect = (menuEl && menuEl.getBoundingClientRect()) || (controlsEl && controlsEl.getBoundingClientRect());
+      if (!refRect) return;
+
+      const gap = 10; // pikseli odstępu od guzików
+      const bottom = Math.max(8, Math.round(vvH - refRect.top + gap));
+      dialogEl.style.bottom = bottom + 'px';
+    }
+
+
     // === Dialogi NPC ===
     // Klucz = nazwa NPC (npc.name)
     const DIALOGS = {
@@ -504,6 +520,7 @@
       dialogNameEl.textContent = npc.name;
       startTyping(Dialog.lines[0]);
       dialogEl.style.display = 'block';
+      positionDialog();
 
       Dialog.justOpened = true;
 
@@ -1066,12 +1083,27 @@
     window.addEventListener('keyup',   e=>{ const k=KeyMap[e.key]; if(k){ Input[k]=false; e.preventDefault(); } }, {passive:false});
 
     /* ===== Fullscreen / Pseudo-FS ===== */
-    async function goFullscreenAndLock(){
-      const el=document.documentElement; let fsOk=false;
-      try{ if(!document.fullscreenElement && el.requestFullscreen){ await el.requestFullscreen({navigationUI:'hide'}); fsOk=true; } }catch(e){}
-      if(!fsOk && el.webkitRequestFullscreen){ try{ el.webkitRequestFullscreen(); fsOk=true; }catch(e){} }
-      try{ if(screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); }catch(e){}
-      if(!fsOk){ document.body.classList.add('pseudo-fs'); kickChromeIOSFull(); }
+    function tryFullscreenNonBlocking(){
+      const el = document.documentElement;
+
+      // 1) Spróbuj wejść w fullscreen – nie awaitujemy
+      try {
+        if (!document.fullscreenElement && el.requestFullscreen) {
+          const p = el.requestFullscreen({ navigationUI: 'hide' });
+          p && p.catch(()=>{}); // połknij rejection
+        }
+      } catch(_) {}
+
+      // 2) Orientation lock – też bez await
+      try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(()=>{}); } catch(_) {}
+
+      // 3) Po chwili – jeśli nadal brak fullscreen, odpal pseudo-FS dla mobilnych
+      setTimeout(()=>{
+        if (!document.fullscreenElement) {
+          document.body.classList.add('pseudo-fs');
+          kickChromeIOSFull(); // harmless na Androidzie
+        }
+      }, 400);
     }
 
     /* ===== Lifecycle ===== */
@@ -1081,12 +1113,13 @@
       requestAnimationFrame(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); });
       setTimeout(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); },140);
       setTimeout(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); },320);
+      positionDialog();
     }
 
     beginBtn.addEventListener('click', async (e)=>{
       e.preventDefault();
       ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(_){}
-      await goFullscreenAndLock();
+      tryFullscreenNonBlocking();
       startOverlay.classList.add('hidden'); bumpLayoutFixes();
       if(!running){ running=true; lastTime=performance.now(); requestAnimationFrame(step); }
     });
