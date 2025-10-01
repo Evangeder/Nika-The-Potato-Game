@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <title>Mini Retro Pad</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="./css/game.css">
+</head>
+<body>
+  <!-- „Scroll bait” dla Chrome iOS -->
+  <div id="scroll-bait" style="position:absolute;left:0;top:0;width:1px;height:200vh;pointer-events:none;opacity:0;"></div>
+
+  <div class="app" id="app">
+    <div class="stage-wrap">
+      <canvas id="stage" width="1280" height="720" aria-label="Obszar gry"></canvas>
+
+      <div class="overlay" id="startOverlay" role="dialog" aria-modal="true">
+        <div class="card">
+          <h1>Dotknij, aby rozpocząć</h1>
+          <p>Ruch po kafelkach: <b>Normal</b>, <b>Ice</b> (ślizg), <b>Ledge</b> (przeskok jednostronny z hopem).</p>
+          <a class="bigbtn" id="beginBtn" href="#">Start</a>
+          <p style="margin-top:.8rem; opacity:.7; font-size:.85rem;">DPAD: trzymaj aby jechać; zmiana łapana na granicy tile’a</p>
+        </div>
+      </div>
+
+      <div class="overlay rotate-hint" id="rotateOverlay" aria-hidden="true">
+        <div class="card">
+          <h1>Obróć urządzenie</h1>
+          <p>Ta gra działa w układzie poziomym (landscape).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gamepad -->
+  <div class="controls" id="controls" aria-label="Gamepad">
+    <div class="dpad" aria-label="D-Pad">
+      <button class="up"    data-key="up"    aria-label="Góra">▲</button>
+      <button class="left"  data-key="left"  aria-label="Lewo">◀</button>
+      <div class="center" tabindex="-1" aria-hidden="true">•</div>
+      <button class="right" data-key="right" aria-label="Prawo">▶</button>
+      <button class="down"  data-key="down"  aria-label="Dół">▼</button>
+    </div>
+    <div class="menu" aria-label="Menu">
+      <div class="menu-row">
+        <button class="pill" data-key="select" aria-label="Select">Select</button>
+        <button class="pill" data-key="start"  aria-label="Start">Start</button>
+      </div>
+    </div>
+    <div class="ab" aria-label="Przyciski A i B">
+      <button class="btn-b" data-key="b" aria-label="B">B</button>
+      <button class="btn-a" data-key="a" aria-label="A">A</button>
+    </div>
+  </div>
+
+  <script>
+    /* ===== Helpers / stan ===== */
+    const app = document.getElementById('app');
+    const stageWrap = document.querySelector('.stage-wrap');
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.imageSmoothingEnabled = false;
+    const startOverlay = document.getElementById('startOverlay');
+    const rotateOverlay = document.getElementById('rotateOverlay');
+    const beginBtn = document.getElementById('beginBtn');
+    const dpadEl = document.querySelector('.dpad');
+
+    const Input = { up:false, down:false, left:false, right:false, a:false, b:false, start:false, select:false };
+    const KeyMap = { 'ArrowUp':'up','ArrowDown':'down','ArrowLeft':'left','ArrowRight':'right','z':'a','Z':'a','x':'b','X':'b','Enter':'start','Shift':'select' };
+
+    /* ===== Tilemap ===== */
+    const TILE = 48;
+    const MAP_W = 64, MAP_H = 64;
+
+    const T = {
+      FLOOR: 0,
+      WALL:  1,
+      ICE:   2,
+      LEDGE_U: 3,   // ↑
+      LEDGE_R: 4,   // →
+      LEDGE_D: 5,   // ↓
+      LEDGE_L: 6    // ←
+    };
+
+    // === Tileset: ./assets/sprites/tileset.png (komórki 32x32) ===
+    const TILESET = {
+      image: new Image(),
+      ready: false,
+      cell: 32,
+      // Mapowanie typów kafli -> [u, v] w jednostkach komórek tilesetu (mnożone przez 32 px)
+      uv: new Map([
+        [T.FLOOR,   [1, 5]],
+        [T.WALL,    [12, 7]],
+        [T.ICE,     [10, 14]],
+        [T.LEDGE_U, [3, 5]],
+        [T.LEDGE_R, [3, 5]],
+        [T.LEDGE_D, [3, 5]],
+        [T.LEDGE_L, [3, 5]],
+      ])
+    };
+    TILESET.image.src = './assets/sprites/tileset.png';
+    TILESET.image.addEventListener('load', ()=>{ TILESET.ready = true; });
+
+    function drawTileFromTileset(t, dx, dy){
+      if (!TILESET.ready) return false;
+      const uv = TILESET.uv.get(t);
+      if (!uv) return false;
+      const [u, v] = uv;
+      const s = TILESET.cell;
+
+      // mikro-inset, żeby nie „zaciągało” sąsiedniej komórki (gdyby kiedyś włączyło się filtrowanie)
+      const EPS = 0.01; // px w atlasie 32x32
+      ctx.drawImage(
+        TILESET.image,
+        u*s + EPS, v*s + EPS, s - 2*EPS, s - 2*EPS,
+        dx, dy, TILE, TILE
+      );
+      return true;
+    }
+
+    const map = new Uint8Array(MAP_W * MAP_H);
+    const idx = (x,y)=> y*MAP_W + x;
+    const inBounds = (x,y)=> x>=0 && y>=0 && x<MAP_W && y<MAP_H;
+    const isWall   = (x,y)=> map[idx(x,y)] === T.WALL;
+    const isIce    = (x,y)=> map[idx(x,y)] === T.ICE;
+    const isLedge  = (x,y)=> {
+      const t = map[idx(x,y)];
+      return t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L;
+    };
+    const ledgeAllows = (tileType, dirKey)=>{
+      return (tileType===T.LEDGE_U && dirKey==='up')
+          || (tileType===T.LEDGE_D && dirKey==='down')
+          || (tileType===T.LEDGE_L && dirKey==='left')
+          || (tileType===T.LEDGE_R && dirKey==='right');
+    };
+
+    function seedRand(n){ let s=n|0; return ()=> (s=(s*1664525+1013904223)>>>0)/4294967296; }
+
+    // === Ledge safety helpers ===
+    function hasAdjacentLedge(x, y){
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+      for (const [dx,dy] of dirs){
+        const nx = x+dx, ny = y+dy;
+        if (!inBounds(nx,ny)) continue;
+        if (isLedge(nx,ny)) return true;
+      }
+      return false;
+    }
+    function typeToDXDY(tileType){
+      if (tileType===T.LEDGE_U) return {dx:0, dy:-1};
+      if (tileType===T.LEDGE_D) return {dx:0, dy: 1};
+      if (tileType===T.LEDGE_L) return {dx:-1,dy: 0};
+      if (tileType===T.LEDGE_R) return {dx: 1,dy: 0};
+      return {dx:0,dy:0};
+    }
+    function placeLedgeSafe(x, y, tileType){
+      if (!inBounds(x,y)) return false;
+      if (map[idx(x,y)] !== T.FLOOR) return false;      // stawiamy tylko na podłodze
+      if (hasAdjacentLedge(x,y)) return false;          // brak styku bokiem
+      const {dx,dy} = typeToDXDY(tileType);
+      const landx = x + dx, landy = y + dy;             // kafel lądowania (o 1 w kierunku strzałki)
+      if (!inBounds(landx,landy)) return false;
+      const land = map[idx(landx,landy)];
+      if (land === T.WALL || isLedge(landx,landy)) return false; // nie lądujemy na ścianie/ledge’u
+      map[idx(x,y)] = tileType;
+      return true;
+    }
+
+    function generateMap(){
+      map.fill(T.FLOOR);
+      // obwód ścianą
+      for(let x=0;x<MAP_W;x++){ map[idx(x,0)] = T.WALL; map[idx(x,MAP_H-1)] = T.WALL; }
+      for(let y=0;y<MAP_H;y++){ map[idx(0,y)] = T.WALL; map[idx(MAP_W-1,y)] = T.WALL; }
+
+      const rnd = seedRand(1337);
+
+      // losowe ściany
+      for(let y=1;y<MAP_H-1;y++){
+        for(let x=1;x<MAP_W-1;x++){
+          if (rnd() < 0.06) map[idx(x,y)] = T.WALL;
+        }
+      }
+
+      // korytarz krzyżowy w środku
+      const cx = (MAP_W/2)|0, cy=(MAP_H/2)|0;
+      for(let x=2;x<MAP_W-2;x++){ map[idx(x,cy)] = T.FLOOR; }
+      for(let y=2;y<MAP_H-2;y++){ map[idx(cx,y)] = T.FLOOR; }
+
+      // plamy lodu (ICE)
+      for(let i=0;i<5;i++){
+        const sx = 8 + ((rnd()* (MAP_W-16))|0);
+        const sy = 8 + ((rnd()* (MAP_H-16))|0);
+        const r  = 3 + ((rnd()*5)|0);
+        for(let y=sy-r;y<=sy+r;y++){
+          for(let x=sx-r;x<=sx+r;x++){
+            if(!inBounds(x,y)) continue;
+            const d = Math.hypot(x-sx,y-sy);
+            if (d<=r && map[idx(x,y)]!==T.WALL) map[idx(x,y)] = T.ICE;
+          }
+        }
+      }
+
+      // kilka ledge’y w środku do testu
+      placeLedgeSafe(cx-4, cy-6, T.LEDGE_R);
+      placeLedgeSafe(cx+6, cy-3, T.LEDGE_D);
+      placeLedgeSafe(cx-8, cy+4, T.LEDGE_U);
+      placeLedgeSafe(cx+2, cy+6, T.LEDGE_L);
+
+      // startowy krzyżyk czysty
+      for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++) map[idx(x,y)] = T.FLOOR;
+    }
+    generateMap();
+
+    /* ===== Audio (WebAudio) – hop sfx ===== */
+    let audioCtx=null, masterGain=null;
+    function ensureAudio(){
+      if (audioCtx) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.08; // cicho, mobilnie
+      masterGain.connect(audioCtx.destination);
+    }
+    function playHop(){
+      if (!audioCtx) return;
+      const t = audioCtx.currentTime;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(660, t);
+      o.frequency.exponentialRampToValueAtTime(990, t+0.08);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t+0.16);
+      o.connect(g); g.connect(masterGain);
+      o.start(t); o.stop(t+0.18);
+    }
+
+    // === Prędkości (czas na 1 tile) ===
+    const SPEED = {
+      WALK:   0.24, // wolniejsze chodzenie (nowe domyślne)
+      SPRINT: 0.16  // jak dotychczasowe domyślne
+    };
+
+    /* ===== Player – płynny per-tile + hop na ledge ===== */
+    const Player = {
+      tx: (MAP_W/2)|0, ty: (MAP_H/2)|0,
+      wx: 0, wy: 0,
+      moving: false,
+      dirKey: null, dx: 0, dy: 0,
+      segmentTiles: 1,     // 1 = normal, 2 = hop przez ledge
+      progress: 0,         // 0..1 w obrębie segmentu
+
+      // Używamy segmentTileTime zamiast starego tileTime
+      tileTime: SPEED.SPRINT,          // legacy (nie używamy do liczenia)
+      segmentTileTime: SPEED.WALK,     // aktualny czas na tile dla bieżącego segmentu
+
+      // Lock prędkości na czas ślizgu
+      slideLockActive: false,
+      slideLockedTileTime: SPEED.WALK,
+
+      queuedKey: null,
+      isHopping: false,    // czy aktualny segment to hop (2 tile)
+      hopZ: 0              // wysokość hopa (px ekranu)
+    };
+    function tileCenterX(tx){ return tx*TILE + TILE/2; }
+    function tileCenterY(ty){ return ty*TILE + TILE/2; }
+    Player.wx = tileCenterX(Player.tx); Player.wy = tileCenterY(Player.ty);
+
+    const Camera = { x: Player.wx, y: Player.wy };
+
+    function dirKeyToVec(k){
+      if (k==='up') return {dx:0,dy:-1};
+      if (k==='down') return {dx:0,dy: 1};
+      if (k==='left') return {dx:-1,dy:0};
+      if (k==='right')return {dx: 1,dy:0};
+      return {dx:0,dy:0};
+    }
+    function currentDirKey(){
+      if (Input.up) return 'up';
+      if (Input.right) return 'right';
+      if (Input.down) return 'down';
+      if (Input.left) return 'left';
+      return null;
+    }
+    function hopProfile01(t){ // 0..1 -> łuk hopa
+      return Math.sin(Math.PI * Math.max(0, Math.min(1, t))); // 0..1..0
+    }
+
+    // Czy można rozpocząć segment ruchu w danym kierunku i ile tile’i ma segment?
+    function canStartSegment(tx,ty, dirKey){
+      if (!dirKey) return {ok:false};
+      const {dx,dy} = dirKeyToVec(dirKey);
+      const nx = tx+dx, ny = ty+dy;
+      if (!inBounds(nx,ny)) return {ok:false};
+      const t1 = map[idx(nx,ny)];
+      if (t1 === T.WALL) return {ok:false};
+
+      if (t1===T.LEDGE_U || t1===T.LEDGE_R || t1===T.LEDGE_D || t1===T.LEDGE_L){
+        // dozwolony tylko z właściwej strony + przeskok o 2 tile’e
+        if (!ledgeAllows(t1, dirKey)) return {ok:false};
+        const lx = tx + 2*dx, ly = ty + 2*dy;
+        if (!inBounds(lx,ly)) return {ok:false};
+        const land = map[idx(lx,ly)];
+        if (land === T.WALL) return {ok:false};
+        if (land===T.LEDGE_U || land===T.LEDGE_R || land===T.LEDGE_D || land===T.LEDGE_L) return {ok:false};
+        return {ok:true, seg:2};
+      }
+      return {ok:true, seg:1};
+    }
+
+    /* ===== Viewport & DPR ===== */
+    function getDPR(){ return Math.min(window.devicePixelRatio || 1, 2); }
+    function isPortrait(){ return window.matchMedia('(orientation: portrait)').matches; }
+    function setAppVH(){ const vh=(window.visualViewport?window.visualViewport.height:window.innerHeight);
+      document.documentElement.style.setProperty('--app-vh', vh + 'px'); }
+    function setPadH(){ const vh=(window.visualViewport?window.visualViewport.height:window.innerHeight);
+      const ratio=isPortrait()?0.30:0.26; const px=Math.round(vh*ratio);
+      const clamped=Math.max(120, Math.min(220, px)); document.documentElement.style.setProperty('--pad-h', clamped+'px'); }
+    function resizeCanvasToDisplaySize(){
+      const dpr=getDPR(); const rect=stageWrap.getBoundingClientRect();
+      const w=Math.max(1, Math.floor(rect.width*dpr)); const h=Math.max(1, Math.floor(rect.height*dpr));
+      if (canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
+    }
+    function updateRotateOverlay(){ rotateOverlay.style.display = isPortrait() ? 'grid' : 'none'; }
+    const forceReflow = (el=document.body)=>void el.offsetHeight;
+
+    /* ===== Chrome iOS pseudo-FS ===== */
+    function isChromeIOS(){ const ua=navigator.userAgent; return /CriOS\/\d+/.test(ua)&&/iP(hone|ad|od)/i.test(ua); }
+    function kickChromeIOSFull(){ if(!isChromeIOS())return; const bait=document.getElementById('scroll-bait');
+      if(bait) bait.style.height='300vh'; [30,100,300,600,900,1300,1700].forEach(t=>setTimeout(()=>window.scrollTo(0,1),t)); }
+    ;['pointerdown','pointermove','touchstart','touchmove'].forEach(ev=> window.addEventListener(ev, ()=>kickChromeIOSFull(), {passive:true}));
+
+    /* ===== Pętla gry ===== */
+    let lastTime = 0, running = false;
+
+    function step(ts){
+      if (!running) return;
+      const now = ts/1000;
+      const dt = Math.min(0.032, (ts - lastTime)/1000 || 0);
+      lastTime = ts;
+      update(now, dt);
+      render();
+      requestAnimationFrame(step);
+    }
+
+    function update(now, dt){
+      // zapamiętaj aktualnie trzymany kierunek
+      const held = currentDirKey();
+      Player.queuedKey = held;
+
+      // jeśli stoimy – spróbuj wystartować
+      if (!Player.moving && held){
+        const trySeg = canStartSegment(Player.tx, Player.ty, held);
+        if (trySeg.ok){
+          const {dx,dy} = dirKeyToVec(held);
+          Player.moving = true;
+          Player.dirKey = held; Player.dx = dx; Player.dy = dy;
+          Player.segmentTiles = trySeg.seg || 1;
+          Player.isHopping = Player.segmentTiles > 1;
+          if (Player.isHopping) { ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(e){} playHop(); }
+          Player.progress = 0;
+        }
+      }
+
+      // jeśli jedziemy – płynny akumulator (czas segmentu = tileTime * segmentTiles)
+      if (Player.moving){
+        Player.progress += dt / (Player.segmentTileTime * Player.segmentTiles);
+
+        while (Player.progress >= 1){
+          Player.progress -= 1;
+          // skończyliśmy segment: przeskocz 1 lub 2 tile’e
+          Player.tx += Player.dx * Player.segmentTiles;
+          Player.ty += Player.dy * Player.segmentTiles;
+
+          // Jeśli właśnie wjechaliśmy na lód, zablokuj prędkość na tę, którą weszliśmy.
+          // Jeśli zjechaliśmy z lodu – odblokuj.
+          const nowOnIce = isIce(Player.tx, Player.ty);
+          if (nowOnIce) {
+            if (!Player.slideLockActive) {
+              Player.slideLockActive = true;
+              // Zablokuj do prędkości segmentu, którym wjechaliśmy na ICE
+              Player.slideLockedTileTime = Player.segmentTileTime;
+            }
+          } else {
+            Player.slideLockActive = false;
+          }
+
+          // wybór następnego segmentu:
+          // 1) jeśli trzymasz przycisk – użyj tego kierunku
+          // 2) jeśli NIE trzymasz, ale stoisz na lodzie – kontynuuj tym samym kierunkiem (ślizg)
+          let nextKey;
+          if (isIce(Player.tx, Player.ty)) {
+            // Na lodzie ignorujemy input: jedziemy dalej w tym samym kierunku
+            nextKey = Player.dirKey;
+          } else {
+            // Po zjechaniu z lodu (lub gdy w ogóle nie ma lodu) — czytamy input
+            nextKey = Player.queuedKey;
+          }
+
+          const trySeg = canStartSegment(Player.tx, Player.ty, nextKey);
+          if (nextKey && trySeg.ok){
+            const {dx,dy} = dirKeyToVec(nextKey);
+            Player.moving = true;
+            Player.dirKey = nextKey; Player.dx = dx; Player.dy = dy;
+            Player.segmentTiles = trySeg.seg || 1;
+            const speedNow = Input.b ? SPEED.SPRINT : SPEED.WALK;
+            Player.isHopping = Player.segmentTiles > 1;
+            const speedNow2 = Input.b ? SPEED.SPRINT : SPEED.WALK;
+            Player.segmentTileTime = Player.slideLockActive ? Player.slideLockedTileTime : speedNow2;
+
+            if (isIce(Player.tx, Player.ty)) {
+              Player.slideLockActive = true;
+              Player.slideLockedTileTime = speedNow;
+              Player.segmentTileTime = Player.slideLockedTileTime;
+            } else {
+              Player.slideLockActive = false;
+              Player.segmentTileTime = speedNow;
+            }
+            if (Player.isHopping) { ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(e){} playHop(); }
+            // progress zostaje jako „resztka” (>0) – płynnie w nowy segment
+          } else {
+            // stop – idealnie w centrum kafla
+            Player.moving = false;
+            Player.dirKey = null; Player.dx=0; Player.dy=0;
+            Player.segmentTiles = 1; Player.progress = 0;
+            Player.isHopping = false; Player.hopZ = 0;
+            break;
+          }
+        }
+      }
+
+      // pozycja świata (liniowo, segmentTiles uwzględnia jump)
+      const fromX = tileCenterX(Player.tx), fromY = tileCenterY(Player.ty);
+      const toX   = tileCenterX(Player.tx + Player.dx*Player.segmentTiles);
+      const toY   = tileCenterY(Player.ty + Player.dy*Player.segmentTiles);
+      const t = Player.moving ? Player.progress : 0;
+      Player.wx = fromX + (toX - fromX) * t;
+      Player.wy = fromY + (toY - fromY) * t;
+
+      // hop profil (tylko przy ledge’ach), niezależny od kierunku – rysunkowo w osi Y
+      Player.hopZ = Player.isHopping ? hopProfile01(t) * (TILE * 0.45) : 0;
+
+      // kamera na graczu
+      Camera.x = Player.wx; Camera.y = Player.wy;
+    }
+
+    /* ===== Rysowanie ===== */
+    function render(){
+      const dpr = getDPR(); const vw = canvas.width / dpr, vh = canvas.height / dpr;
+      ctx.save(); ctx.scale(dpr, dpr); ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#0b0c10'; ctx.fillRect(0,0,vw,vh);
+
+      const leftWorld = Camera.x - vw/2;
+      const topWorld  = Camera.y - vh/2;
+      const startX = Math.max(0, Math.floor(leftWorld / TILE));
+      const startY = Math.max(0, Math.floor(topWorld  / TILE));
+      const endX   = Math.min(MAP_W-1, Math.floor((Camera.x + vw/2) / TILE));
+      const endY   = Math.min(MAP_H-1, Math.floor((Camera.y + vh/2) / TILE));
+
+      // start ekranu dla (startX,startY) — ZAOKRĄGLONY do px
+      const sx0 = Math.floor(startX*TILE - leftWorld);
+      const sy0 = Math.floor(startY*TILE - topWorld);
+
+      for (let ty=startY; ty<=endY; ty++){
+        const sy = sy0 + (ty - startY) * TILE;
+        for (let tx=startX; tx<=endX; tx++){
+          const sx = sx0 + (tx - startX) * TILE;
+
+          const t = map[idx(tx,ty)];
+          // ... tu rysowanie z tilesetu / fallback (patrz pkt 3)
+          let drawn = drawTileFromTileset(t, sx, sy);
+          if (!drawn) {
+            if (t === T.FLOOR || t === T.ICE){
+              if (t === T.ICE){
+                ctx.fillStyle = '#0a1b2b'; ctx.fillRect(sx,sy,TILE,TILE);
+                ctx.fillStyle = 'rgba(80,200,255,0.08)'; ctx.fillRect(sx,sy,TILE,TILE);
+              } else {
+                const c = ((tx + ty) & 1) ? '#0c1117' : '#0b0f14';
+                ctx.fillStyle = c; ctx.fillRect(sx, sy, TILE, TILE);
+              }
+            }
+            if (t === T.WALL){
+              ctx.fillStyle = '#111827'; ctx.fillRect(sx, sy, TILE, TILE);
+              ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 1; ctx.strokeRect(sx+0.5, sy+0.5, TILE-1, TILE-1);
+            }
+            if (t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L){
+              ctx.fillStyle = '#14151f'; ctx.fillRect(sx, sy, TILE, TILE);
+              ctx.strokeStyle = '#3b4160'; ctx.strokeRect(sx+0.5, sy+0.5, TILE-1, TILE-1);
+            }
+          }
+
+          // 3) Opcjonalne nakładki niezależne od tilesetu:
+          if (t === T.ICE){
+            // lekki „gloss” lodu, jeśli chcesz zachować efekt na tilesetowym kaflu
+            ctx.fillStyle = 'rgba(80,200,255,0.08)';
+            ctx.fillRect(sx,sy,TILE,TILE);
+          }
+          if (t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L){
+            // strzałka kierunku (jeśli nie masz jej w grafikach tilesetu)
+            ctx.fillStyle = '#9aa3ff';
+            ctx.font = 'bold 18px ui-sans-serif, system-ui';
+            const arrow = (t===T.LEDGE_U?'↑':t===T.LEDGE_R?'→':t===T.LEDGE_D?'↓':'←');
+            ctx.fillText(arrow, sx + TILE/2 - 6, sy + TILE/2 + 6);
+          }
+        }
+      }
+
+      // gracz (środek ekranu) + cień zależny od wysokości hopa
+      const px = vw/2, py = vh/2;
+      const ps = Math.min(0.6*TILE, 28);
+
+      // cień
+      const shadowScale = 1 - Math.min(0.75, Player.hopZ/(TILE*0.9)) * 0.6;
+      ctx.save();
+      ctx.globalAlpha = 0.25 * (1 - Math.min(1, Player.hopZ/(TILE*0.9)*0.9));
+      ctx.beginPath();
+      ctx.ellipse(px, py + ps/2 + 4, (ps*0.62)*shadowScale, (ps*0.26)*shadowScale, 0, 0, Math.PI*2);
+      ctx.fillStyle = '#000';
+      ctx.fill();
+      ctx.restore();
+
+      // bohater z „wysokością” hopa (rysunkowo podnosimy w osi Y)
+      const drawY = py - Player.hopZ;
+      ctx.fillStyle = '#60a5fa'; ctx.fillRect(px - ps/2, drawY - ps/2, ps, ps);
+      ctx.strokeStyle = '#93c5fd'; ctx.lineWidth = 2; ctx.strokeRect(px - ps/2, drawY - ps/2, ps, ps);
+
+      // HUD
+      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas'; ctx.fillStyle = '#cbd5e1';
+      const under = map[idx(Player.tx, Player.ty)];
+      const underName = under===T.FLOOR?'FLOOR':under===T.WALL?'WALL':under===T.ICE?'ICE':
+                        under===T.LEDGE_U?'LEDGE_U':under===T.LEDGE_R?'LEDGE_R':
+                        under===T.LEDGE_D?'LEDGE_D':'LEDGE_L';
+      const pressed = Object.entries(Input).filter(([k,v])=>v).map(([k])=>k.toUpperCase()).join(' ');
+      ctx.fillText(`Tile ${Player.tx},${Player.ty} [${underName}] | HopZ:${Player.hopZ.toFixed(0)} | Pressed: ${pressed||'—'}`, 10, 18);
+
+      ctx.restore();
+    }
+
+    /* ===== Wejście ===== */
+    function vibrate(ms=10){ if (navigator.vibrate) navigator.vibrate(ms); }
+
+    // A/B/Start/Select
+    document.querySelectorAll('[data-key]:not(.dpad [data-key])').forEach(btn=>{
+      const key=btn.dataset.key;
+      const setActive = v=>{ Input[key]=v; btn.dataset.active=v?"true":"false"; if(v) vibrate(8); };
+      const down=e=>{ e.preventDefault(); setActive(true); };
+      const up  =e=>{ e.preventDefault(); setActive(false); };
+      btn.addEventListener('pointerdown',down,{passive:false});
+      btn.addEventListener('pointerup',up,{passive:false});
+      btn.addEventListener('pointerleave',up,{passive:false});
+      btn.addEventListener('pointercancel',up,{passive:false});
+      btn.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+    });
+
+    // D-Pad – ślizg kursora (zmiana kierunku bez odrywania)
+    const dpadBtns = {
+      up: dpadEl.querySelector('[data-key="up"]'),
+      down: dpadEl.querySelector('[data-key="down"]'),
+      left: dpadEl.querySelector('[data-key="left"]'),
+      right: dpadEl.querySelector('[data-key="right"]'),
+    };
+    let dpadPointerId = null;
+    function setDirKey(dirKey){
+      Input.up=Input.down=Input.left=Input.right=false;
+      for(const k in dpadBtns) dpadBtns[k].dataset.active="false";
+      if(dirKey && Input.hasOwnProperty(dirKey)){ Input[dirKey]=true; dpadBtns[dirKey].dataset.active="true"; }
+    }
+    function dirFromPoint(cx,cy){
+      const r=dpadEl.getBoundingClientRect();
+      const x=cx-(r.left+r.width/2), y=cy-(r.top+r.height/2);
+      const ax=Math.abs(x), ay=Math.abs(y);
+      const dist=Math.hypot(x,y), dead=Math.min(r.width,r.height)*0.18;
+      if(dist<dead) return null;
+      return (ax>ay) ? (x<0?'left':'right') : (y<0?'up':'down');
+    }
+    dpadEl.addEventListener('pointerdown',e=>{
+      e.preventDefault(); dpadPointerId=e.pointerId; dpadEl.setPointerCapture(dpadPointerId);
+      setDirKey(dirFromPoint(e.clientX,e.clientY)); vibrate(8);
+    },{passive:false});
+    dpadEl.addEventListener('pointermove',e=>{
+      if(e.pointerId!==dpadPointerId) return; e.preventDefault();
+      setDirKey(dirFromPoint(e.clientX,e.clientY));
+    },{passive:false});
+    function endDpad(e){
+      if(e.pointerId!==dpadPointerId) return; e.preventDefault();
+      dpadEl.releasePointerCapture(dpadPointerId); dpadPointerId=null; setDirKey(null);
+    }
+    dpadEl.addEventListener('pointerup',endDpad,{passive:false});
+    dpadEl.addEventListener('pointercancel',endDpad,{passive:false});
+
+    // Klawiatura
+    window.addEventListener('keydown', e=>{ const k=KeyMap[e.key]; if(k){ Input[k]=true; e.preventDefault(); } }, {passive:false});
+    window.addEventListener('keyup',   e=>{ const k=KeyMap[e.key]; if(k){ Input[k]=false; e.preventDefault(); } }, {passive:false});
+
+    /* ===== Fullscreen / Pseudo-FS ===== */
+    async function goFullscreenAndLock(){
+      const el=document.documentElement; let fsOk=false;
+      try{ if(!document.fullscreenElement && el.requestFullscreen){ await el.requestFullscreen({navigationUI:'hide'}); fsOk=true; } }catch(e){}
+      if(!fsOk && el.webkitRequestFullscreen){ try{ el.webkitRequestFullscreen(); fsOk=true; }catch(e){} }
+      try{ if(screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape'); }catch(e){}
+      if(!fsOk){ document.body.classList.add('pseudo-fs'); kickChromeIOSFull(); }
+    }
+
+    /* ===== Lifecycle ===== */
+    function bumpLayoutFixes(){
+      setAppVH(); setPadH(); forceReflow(app);
+      resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull();
+      requestAnimationFrame(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); });
+      setTimeout(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); },140);
+      setTimeout(()=>{ setAppVH(); setPadH(); resizeCanvasToDisplaySize(); updateRotateOverlay(); kickChromeIOSFull(); },320);
+    }
+
+    beginBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(_){}
+      await goFullscreenAndLock();
+      startOverlay.classList.add('hidden'); bumpLayoutFixes();
+      if(!running){ running=true; lastTime=performance.now(); requestAnimationFrame(step); }
+    });
+    document.addEventListener('fullscreenchange', ()=>{
+      bumpLayoutFixes(); if(!document.fullscreenElement){ startOverlay.classList.remove('hidden'); running=false; }
+    });
+
+    window.addEventListener('resize', bumpLayoutFixes);
+    window.addEventListener('orientationchange', bumpLayoutFixes);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', bumpLayoutFixes);
+    window.addEventListener('pageshow', bumpLayoutFixes);
+
+    (function init(){
+      setAppVH(); setPadH(); updateRotateOverlay(); resizeCanvasToDisplaySize();
+      window.addEventListener('contextmenu', e=>e.preventDefault());
+      let lastTouch=0; window.addEventListener('touchend', (e)=>{ const now=Date.now(); if(now-lastTouch<350) e.preventDefault(); lastTouch=now; }, {passive:false});
+    })();
+  </script>
+</body>
+</html>
