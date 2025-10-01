@@ -121,6 +121,9 @@
     }
 
     const map = new Uint8Array(MAP_W * MAP_H);
+    const NPC_TICK = { idleMin: 0.6, idleMax: 2.2 }; // sekundy przerwy między krokami
+    function rndIdle(){ return NPC_TICK.idleMin + Math.random()*(NPC_TICK.idleMax-NPC_TICK.idleMin); }
+    
     const idx = (x,y)=> y*MAP_W + x;
     const inBounds = (x,y)=> x>=0 && y>=0 && x<MAP_W && y<MAP_H;
     const isWall   = (x,y)=> map[idx(x,y)] === T.WALL;
@@ -128,6 +131,21 @@
     const isLedge  = (x,y)=> {
       const t = map[idx(x,y)];
       return t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L;
+    };
+    const isPlayerAt = (x,y)=> Player.tx===x && Player.ty===y;
+    // NPC blokują: swój kafel oraz, jeśli są w ruchu, kafel docelowy (rezerwacja)
+    function npcBlocksTile(x,y){
+      for (const n of NPCS){
+        if (n.tx===x && n.ty===y) return true;
+        if (n.moving && n.tx + n.dx === x && n.ty + n.dy === y) return true;
+      }
+      return false;
+    }
+    // Uproszczona „przechodność” dla NPC: tylko FLOOR
+    const isPassableForNPC = (x,y)=>{
+      if (!inBounds(x,y)) return false;
+      const t = map[idx(x,y)];
+      return t === T.FLOOR;
     };
     const ledgeAllows = (tileType, dirKey)=>{
       return (tileType===T.LEDGE_U && dirKey==='up')
@@ -168,7 +186,112 @@
       return true;
     }
 
-    function generateMap(){
+    // === Prędkości (czas na 1 tile) ===
+    const SPEED = {
+      WALK:   0.24, // wolniejsze chodzenie (nowe domyślne)
+      SPRINT: 0.16  // jak dotychczasowe domyślne
+    };
+
+    // === NPC ===
+    const NPCS = [];
+
+    function clampRect(rect){
+      const minX = Math.max(1, Math.min(rect.x1, rect.x2));
+      const maxX = Math.min(MAP_W-2, Math.max(rect.x1, rect.x2));
+      const minY = Math.max(1, Math.min(rect.y1, rect.y2));
+      const maxY = Math.min(MAP_H-2, Math.max(rect.y1, rect.y2));
+      return {minX, minY, maxX, maxY};
+    }
+    function vecForDir(k){
+      if (k==='up') return {dx:0,dy:-1};
+      if (k==='down') return {dx:0,dy: 1};
+      if (k==='left') return {dx:-1,dy:0};
+      return {dx:1,dy:0}; // right
+    }
+    function withinArea(npc,x,y){ const a=npc.area; return x>=a.minX && x<=a.maxX && y>=a.minY && y<=a.maxY; }
+    function validMoveForNPC(npc, dir){
+      const {dx,dy} = vecForDir(dir);
+      const nx = npc.tx + dx, ny = npc.ty + dy;
+      if (!withinArea(npc, nx, ny)) return false;
+      if (!isPassableForNPC(nx, ny)) return false;
+      if (isPlayerAt(nx, ny)) return false;                   // ⟵ nie wchodź na gracza
+      // unikaj też innych NPC siedzących na kaflu docelowym
+      for (const other of NPCS){
+        if (other===npc) continue;
+        if (other.tx===nx && other.ty===ny) return false;
+      }
+      return true;
+    }
+    function pickRandomValidDir(npc){
+      const dirs = ['up','right','down','left'].filter(d => validMoveForNPC(npc, d));
+      if (!dirs.length) return null;
+      return dirs[(Math.random()*dirs.length)|0];
+    }
+    function startNPCMove(npc, dir){
+      const v = vecForDir(dir);
+      npc.moving = true; npc.dirKey = dir; npc.dx = v.dx; npc.dy = v.dy;
+      npc.progress = 0; npc.isIdle = false;
+    }
+    function stopNPC(npc){
+      npc.moving = false; npc.dirKey=null; npc.dx=0; npc.dy=0; npc.progress=0;
+      npc.isIdle = true;
+      npc.idleTimer = rndIdle(); // losowa pauza
+    }
+    function createNPC({tx, ty, area, speed=SPEED.WALK}){
+      const a = clampRect(area);
+      if (!isPassableForNPC(tx,ty)){
+        outer: for (let y=a.minY; y<=a.maxY; y++){
+          for (let x=a.minX; x<=a.maxX; x++){
+            if (isPassableForNPC(x,y)){ tx=x; ty=y; break outer; }
+          }
+        }
+      }
+      const npc = {
+        tx, ty,
+        wx: tileCenterX(tx), wy: tileCenterY(ty),
+        moving:false, dirKey:null, dx:0, dy:0,
+        segmentTileTime: speed, progress:0,
+        isIdle:true, idleTimer: 0.4 + Math.random()*1.2,
+        area: a
+      };
+      NPCS.push(npc);
+      return npc;
+    }
+    function updateNPC(npc, dt){
+      if (!npc.moving){
+        // odliczanie do decyzji
+        npc.idleTimer -= dt;
+        if (npc.idleTimer <= 0){
+          const dir = pickRandomValidDir(npc);
+          if (dir){
+            startNPCMove(npc, dir);         // ruszamy o 1 tile
+          } else {
+            npc.idleTimer = rndIdle();      // brak kierunków -> poczekaj
+          }
+        }
+      } else {
+        npc.progress += dt / npc.segmentTileTime;
+        if (npc.progress >= 1){
+          npc.progress -= 1;
+          // docieramy na kafel docelowy
+          npc.tx += npc.dx; npc.ty += npc.dy;
+
+          // Po dojściu: ZAWSZE pauza (brak łańcuchów)
+          stopNPC(npc);
+        }
+      }
+
+      // world position (liniowo)
+      const fromX = tileCenterX(npc.tx), fromY = tileCenterY(npc.ty);
+      const toX   = tileCenterX(npc.tx + npc.dx), toY = tileCenterY(npc.ty + npc.dy);
+      const t = npc.moving ? npc.progress : 0;
+      npc.wx = fromX + (toX - fromX) * t;
+      npc.wy = fromY + (toY - fromY) * t;
+    }
+    
+    function updateNPCs(dt){ for (const n of NPCS) updateNPC(n, dt); }
+
+    function generateMap() {
       map.fill(T.FLOOR);
       // obwód ścianą
       for(let x=0;x<MAP_W;x++){ map[idx(x,0)] = T.WALL; map[idx(x,MAP_H-1)] = T.WALL; }
@@ -210,6 +333,17 @@
 
       // startowy krzyżyk czysty
       for(let x=cx-1;x<=cx+1;x++) for(let y=cy-1;y<=cy+1;y++) map[idx(x,y)] = T.FLOOR;
+      NPCS.length = 0;
+      createNPC({
+        tx: cx-6, ty: cy,
+        area: { x1: cx-12, y1: cy-6, x2: cx-2, y2: cy+6 },
+        speed: SPEED.WALK
+      });
+      createNPC({
+        tx: cx+4, ty: cy+3,
+        area: { x1: cx+2, y1: cy-4, x2: cx+12, y2: cy+8 },
+        speed: SPEED.WALK
+      });
     }
     generateMap();
 
@@ -218,7 +352,11 @@
     function ensureAudio(){
       if (audioCtx) return;
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
+      if (!AC)
+      {
+        console.warn("WebAudio API not supported");
+        return;
+      } 
       audioCtx = new AC();
       masterGain = audioCtx.createGain();
       masterGain.gain.value = 0.08; // cicho, mobilnie
@@ -238,12 +376,6 @@
       o.connect(g); g.connect(masterGain);
       o.start(t); o.stop(t+0.18);
     }
-
-    // === Prędkości (czas na 1 tile) ===
-    const SPEED = {
-      WALK:   0.24, // wolniejsze chodzenie (nowe domyślne)
-      SPRINT: 0.16  // jak dotychczasowe domyślne
-    };
 
     /* ===== Player – płynny per-tile + hop na ledge ===== */
     const Player = {
@@ -299,16 +431,20 @@
       const t1 = map[idx(nx,ny)];
       if (t1 === T.WALL) return {ok:false};
 
+      // Ledge: skok o 2 kafle, lądowanie nie może być ścianą, ledge’em ani NPC
       if (t1===T.LEDGE_U || t1===T.LEDGE_R || t1===T.LEDGE_D || t1===T.LEDGE_L){
-        // dozwolony tylko z właściwej strony + przeskok o 2 tile’e
         if (!ledgeAllows(t1, dirKey)) return {ok:false};
         const lx = tx + 2*dx, ly = ty + 2*dy;
         if (!inBounds(lx,ly)) return {ok:false};
         const land = map[idx(lx,ly)];
         if (land === T.WALL) return {ok:false};
         if (land===T.LEDGE_U || land===T.LEDGE_R || land===T.LEDGE_D || land===T.LEDGE_L) return {ok:false};
+        if (npcBlocksTile(lx,ly)) return {ok:false};      // ⟵ kolizja z NPC
         return {ok:true, seg:2};
       }
+
+      // Normalny ruch o 1 kafel – nie wchodzimy na NPC
+      if (npcBlocksTile(nx,ny)) return {ok:false};        // ⟵ kolizja z NPC
       return {ok:true, seg:1};
     }
 
@@ -347,7 +483,7 @@
       requestAnimationFrame(step);
     }
 
-    function update(now, dt){
+    function update(now, dt) {
       // zapamiętaj aktualnie trzymany kierunek
       const held = currentDirKey();
       Player.queuedKey = held;
@@ -446,6 +582,9 @@
 
       // kamera na graczu
       Camera.x = Player.wx; Camera.y = Player.wy;
+
+      // NPC
+      updateNPCs(dt);
     }
 
     /* ===== Rysowanie ===== */
@@ -507,6 +646,21 @@
             ctx.fillText(arrow, sx + TILE/2 - 6, sy + TILE/2 + 6);
           }
         }
+      }
+
+      // --- NPC ---
+      for (const n of NPCS){
+        const sx = (n.wx - Camera.x) + vw/2;
+        const sy = (n.wy - Camera.y) + vh/2;
+        const s = Math.min(0.45*TILE, 20);
+        ctx.save();
+        ctx.globalAlpha = n.isIdle ? 0.75 : 1;
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(sx - s/2, sy - s/2, s, s);
+        ctx.strokeStyle = n.isIdle ? '#14532d' : '#065f46';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(sx - s/2, sy - s/2, s, s);
+        ctx.restore();
       }
 
       // gracz (środek ekranu) + cień zależny od wysokości hopa
