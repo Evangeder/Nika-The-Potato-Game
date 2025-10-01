@@ -20,7 +20,7 @@
         <div class="card">
           <h1>Dotknij, aby rozpocząć</h1>
           <p>Ruch po kafelkach: <b>Normal</b>, <b>Ice</b> (ślizg), <b>Ledge</b> (przeskok jednostronny z hopem).</p>
-          <a class="bigbtn" id="beginBtn" href="#">Start</a>
+          <button class="bigbtn" id="beginBtn" type="button">Start</button>
           <p style="margin-top:.8rem; opacity:.7; font-size:.85rem;">DPAD: trzymaj aby jechać; zmiana łapana na granicy tile’a</p>
         </div>
       </div>
@@ -733,6 +733,14 @@
     function kickChromeIOSFull(){ if(!isChromeIOS())return; const bait=document.getElementById('scroll-bait');
       if(bait) bait.style.height='300vh'; [30,100,300,600,900,1300,1700].forEach(t=>setTimeout(()=>window.scrollTo(0,1),t)); }
     ;['pointerdown','pointermove','touchstart','touchmove'].forEach(ev=> window.addEventListener(ev, ()=>kickChromeIOSFull(), {passive:true}));
+    function needsScrollNudge(){
+      // Jeśli na samej górze i da się przewinąć (mamy scroll-bait) — zrób nudge
+      return (window.pageYOffset === 0 || document.documentElement.scrollTop === 0)
+            && (document.documentElement.scrollHeight > window.innerHeight + 10);
+    }
+    function scrollNudge(){
+      try { window.scrollTo(0, 1); } catch(_) {}
+    }
 
     /* ===== Pętla gry ===== */
     let lastTime = 0, running = false;
@@ -1118,6 +1126,12 @@
 
     beginBtn.addEventListener('click', async (e)=>{
       e.preventDefault();
+      if (needsScrollNudge()) {
+        scrollNudge();
+        // na niektórych urządzeniach trzeba powtórzyć po małej zwłoce
+        setTimeout(scrollNudge, 50);
+        setTimeout(scrollNudge, 200);
+      }
       ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(_){}
       tryFullscreenNonBlocking();
       startOverlay.classList.add('hidden'); bumpLayoutFixes();
