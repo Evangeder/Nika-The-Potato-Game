@@ -88,3 +88,25 @@ body,
 
 /* (opcjonalnie) drobny tracking – ten font lubi minimalny letter-spacing */
 .dialog .text { letter-spacing: .2px; }
+
+.dialog {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  /* bottom ustawimy z JS, tu tylko awaryjnie: */
+  bottom: 24px;
+
+  /* STAŁA SZEROKOŚĆ, nie „rozpycha się” z tekstem */
+  width: min(92vw, 560px);
+  min-height: 88px;
+
+  background: rgba(15,23,42,.95);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  z-index: 2000;
+}
+.dialog .name { font-weight:700; color:#93c5fd; margin-bottom:6px; font-size:14px; }
+.dialog .text { font-size:15px; color:#e5e7eb; line-height:1.35; white-space:pre-wrap; word-break:break-word; }
+.dialog .hint { margin-top:8px; font-size:12px; color:#94a3b8; text-align:right; }
