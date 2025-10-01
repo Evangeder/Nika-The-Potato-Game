@@ -69,3 +69,22 @@ canvas#stage{ width: 100%; height: 100%; display:block; image-rendering: pixelat
 .rotate-hint{ display:none; }
 @media (pointer:fine){ .controls{ max-width:1200px; margin:0 auto; } }
 body.pseudo-fs .app { height: 100dvh; }
+
+@font-face{
+  font-family: "EarlsRevenge";
+  src: url("../assets/fonts/EarlsRevenge-69Kg.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Zmienna z fontem i globalne użycie */
+:root { --game-font: "EarlsRevenge", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, "Noto Sans"; }
+
+body,
+.overlay .card,
+.dialog,
+.controls button { font-family: var(--game-font); }
+
+/* (opcjonalnie) drobny tracking – ten font lubi minimalny letter-spacing */
+.dialog .text { letter-spacing: .2px; }

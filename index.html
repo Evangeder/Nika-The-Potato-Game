@@ -61,6 +61,9 @@
     const stageWrap = document.querySelector('.stage-wrap');
     const canvas = document.getElementById('stage');
     const ctx = canvas.getContext('2d', { alpha: false });
+    try {
+      document.fonts && document.fonts.load('14px "EarlsRevenge"');
+    } catch(_) { }
     ctx.imageSmoothingEnabled = false;
     const startOverlay = document.getElementById('startOverlay');
     const rotateOverlay = document.getElementById('rotateOverlay');
@@ -195,6 +198,8 @@
       return true;
     }
 
+    let prevA = false, prevB = false;
+
     const map = new Uint8Array(MAP_W * MAP_H);
     const NPC_TICK = { idleMin: 0.6, idleMax: 2.2 }; // sekundy przerwy między krokami
     function rndIdle(){ return NPC_TICK.idleMin + Math.random()*(NPC_TICK.idleMax-NPC_TICK.idleMin); }
@@ -208,6 +213,12 @@
       return t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L;
     };
     const isPlayerAt = (x,y)=> Player.tx===x && Player.ty===y;
+    function dirToward(fromX, fromY, toX, toY){
+      const dx = toX - fromX, dy = toY - fromY;
+      if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left';
+      return dy > 0 ? 'down' : 'up';
+    }
+
     // NPC blokują: swój kafel oraz, jeśli są w ruchu, kafel docelowy (rezerwacja)
     function npcBlocksTile(x,y){
       for (const n of NPCS){
@@ -313,7 +324,7 @@
       npc.isIdle = true;
       npc.idleTimer = rndIdle(); // losowa pauza
     }
-    function createNPC({tx, ty, area, speed=SPEED.WALK}){
+    function createNPC({tx, ty, area, speed=SPEED.WALK, name="NPC"}){
       const a = clampRect(area);
       if (!isPassableForNPC(tx,ty)){
         outer: for (let y=a.minY; y<=a.maxY; y++){
@@ -330,7 +341,8 @@
         isIdle:true, idleTimer: 0.4 + Math.random()*1.2,
         area: a,
         facing: 'down',
-        animTime: 0
+        animTime: 0,
+        name
       };
       NPCS.push(npc);
       return npc;
@@ -370,6 +382,156 @@
     }
     
     function updateNPCs(dt){ for (const n of NPCS) updateNPC(n, dt); }
+
+    // === Dialog UI ===
+    const style = document.createElement('style');
+    style.textContent = `
+      .dialog {
+        position: fixed; left:50%; transform:translateX(-50%);
+        bottom: calc(var(--pad-h, 200px) + 16px + env(safe-area-inset-bottom));
+        max-width: min(92vw, 720px);
+        background: rgba(15,23,42,.95);
+        border:1px solid #334155; border-radius:12px; padding:12px 14px;
+        box-shadow:0 10px 30px rgba(0,0,0,.35); z-index: 2000;
+      }
+      .dialog .name { font-weight:700; color:#93c5fd; margin-bottom:6px; font-size:14px; }
+      .dialog .text { font-size:15px; color:#e5e7eb; line-height:1.35; white-space:pre-wrap; }
+      .dialog .hint { margin-top:8px; font-size:12px; color:#94a3b8; text-align:right; }
+    `;
+    document.head.appendChild(style);
+
+    const dialogEl = document.createElement('div');
+    dialogEl.className = 'dialog';
+    dialogEl.style.display = 'none';
+    dialogEl.innerHTML = `
+      <div class="name"></div>
+      <div class="text"></div>
+      <div class="hint">A — dalej</div>
+    `;
+    document.body.appendChild(dialogEl);
+    const dialogNameEl = dialogEl.querySelector('.name');
+    const dialogTextEl = dialogEl.querySelector('.text');
+
+    // === Dialogi NPC ===
+    // Klucz = nazwa NPC (npc.name)
+    const DIALOGS = {
+      Guard: {
+        RANDOM: false,
+        TEXT: [
+          "Stój! To teren zamknięty.",
+          "Żartowałem. Miłego dnia!"
+        ]
+      },
+      Wanderer: {
+        RANDOM: true,
+        TEXT: [
+          "Ładna dziś pogoda, co?",
+          "Podobno lód jest zdradliwy…",
+          "Jeśli zobaczysz krawędź — nie wskakuj w nią od boku."
+        ]
+      },
+      DEFAULT: {
+        RANDOM: true,
+        TEXT: ["..."]
+      }
+    };
+
+    // === Dialog Typewriter state ===
+    const dialogHintEl = dialogEl.querySelector('.hint');
+
+    const Dialog = {
+      active: false,
+      npc: null,
+      lines: [],
+      index: 0,
+      // typewriter:
+      typing: false,
+      textFull: "",
+      charsShown: 0,
+      CPS: 40, // znaki na sekundę (zmień wg uznania)
+      justOpened: false
+    };
+
+    function setDialogHint(isTyping){
+      if (!dialogHintEl) return;
+      dialogHintEl.textContent = isTyping ? 'A/B — skip' : 'A — dalej';
+    }
+
+    function startTyping(text){
+      Dialog.textFull = text || "";
+      Dialog.charsShown = 0;
+      Dialog.typing = true;
+      setDialogHint(true);
+      dialogTextEl.textContent = "";
+    }
+
+    function finishTyping(){
+      Dialog.charsShown = Dialog.textFull.length;
+      Dialog.typing = false;
+      setDialogHint(false);
+      dialogTextEl.textContent = Dialog.textFull;
+    }
+
+    function getNPCStandingAt(x,y){
+      return NPCS.find(n => !n.moving && n.tx===x && n.ty===y) || null;
+    }
+    function anyNPCMovingInto(x,y){
+      return NPCS.some(n => n.moving && n.tx + n.dx === x && n.ty + n.dy === y);
+    }
+
+    function faceKeyOrHeld(){
+      // jeśli gracz trzyma strzałkę, traktuj to jako "patrzenie"
+      return currentDirKey() || Player.facing || 'down';
+    }
+    function tileInFront(tx,ty, key){
+      const {dx,dy} = dirKeyToVec(key);
+      return {x: tx+dx, y: ty+dy};
+    }
+
+    function openDialogFor(npc){
+      const def = DIALOGS[npc.name] || DIALOGS.DEFAULT;
+      if (def.RANDOM){
+        const arr = def.TEXT && def.TEXT.length ? def.TEXT : ["..."];
+        const pick = arr[(Math.random()*arr.length)|0];
+        Dialog.lines = [pick];
+      } else {
+        Dialog.lines = (def.TEXT && def.TEXT.length) ? def.TEXT.slice() : ["..."];
+      }
+      Dialog.index = 0;
+      Dialog.npc = npc;
+      Dialog.active = true;
+
+      dialogNameEl.textContent = npc.name;
+      startTyping(Dialog.lines[0]);
+      dialogEl.style.display = 'block';
+
+      Dialog.justOpened = true;
+
+      npc.facing = dirToward(npc.tx, npc.ty, Player.tx, Player.ty);
+    }
+
+    function advanceDialog(){
+      if (Dialog.typing){
+        // jeżeli ktoś wywoła przez pomyłkę – najpierw dokończ bieżącą
+        finishTyping();
+        return;
+      }
+      Dialog.index++;
+      if (Dialog.index >= Dialog.lines.length){
+        closeDialog();
+        return;
+      }
+      startTyping(Dialog.lines[Dialog.index]);
+    }
+
+    function closeDialog(){
+      Dialog.active = false;
+      Dialog.npc = null;
+      Dialog.lines = [];
+      Dialog.index = 0;
+      dialogEl.style.display = 'none';
+    }
+
 
     function generateMap() {
       map.fill(T.FLOOR);
@@ -417,12 +579,14 @@
       createNPC({
         tx: cx-6, ty: cy,
         area: { x1: cx-12, y1: cy-6, x2: cx-2, y2: cy+6 },
-        speed: SPEED.WALK
+        speed: SPEED.WALK,
+        name: "Guard"
       });
       createNPC({
         tx: cx+4, ty: cy+3,
         area: { x1: cx+2, y1: cy-4, x2: cx+12, y2: cy+8 },
-        speed: SPEED.WALK
+        speed: SPEED.WALK,
+        name: "Wanderer"
       });
     }
     generateMap();
@@ -569,6 +733,57 @@
     function update(now, dt) {
       // zapamiętaj aktualnie trzymany kierunek
       const held = currentDirKey();
+      const justPressedA = Input.a && !prevA;
+      const justPressedB = Input.b && !prevB;
+      prevA = Input.a;
+      prevB = Input.b;
+
+      // Interakcja A → dialog
+      if (justPressedA && !Dialog.active){
+        const face = faceKeyOrHeld();
+        const f = tileInFront(Player.tx, Player.ty, face);
+        if (!anyNPCMovingInto(f.x, f.y)) {
+          const npc = getNPCStandingAt(f.x, f.y);
+          if (npc){
+            Player.facing = face;
+            openDialogFor(npc);
+          }
+        }
+      }
+
+      // Jeśli dialog aktywny — blokujemy sterowanie ruchem
+      if (Dialog.active){
+        // Skip tylko jeśli to NIE jest pierwsza klatka po otwarciu
+        if (!Dialog.justOpened){
+          if (Dialog.typing && (justPressedA || justPressedB)){
+            finishTyping();
+          } else if (!Dialog.typing && justPressedA){
+            advanceDialog();
+          }
+        }
+
+        // Krok typewritera
+        if (Dialog.typing){
+          Dialog.charsShown += Dialog.CPS * dt;
+          const n = Math.floor(Dialog.charsShown);
+          if (n >= Dialog.textFull.length){
+            finishTyping();
+          } else {
+            dialogTextEl.textContent = Dialog.textFull.slice(0, n);
+          }
+        }
+
+        // ta klatka została „zjedzona” – od teraz przyjmujemy input
+        Dialog.justOpened = false;   // ⟵ NEW
+
+        // pauza gameplayu itd.
+        Player.queuedKey = null;
+        Camera.x = Player.wx; Camera.y = Player.wy;
+        Player.animTime += dt;
+        for (const n of NPCS) n.animTime += dt;
+        return;
+      }
+
       Player.queuedKey = held;
 
       // jeśli stoimy – spróbuj wystartować
@@ -729,7 +944,7 @@
           if (t===T.LEDGE_U || t===T.LEDGE_R || t===T.LEDGE_D || t===T.LEDGE_L){
             // strzałka kierunku (jeśli nie masz jej w grafikach tilesetu)
             ctx.fillStyle = '#9aa3ff';
-            ctx.font = 'bold 18px ui-sans-serif, system-ui';
+            ctx.font = 'bold 18px "EarlsRevenge", ui-sans-serif, system-ui';
             const arrow = (t===T.LEDGE_U?'↑':t===T.LEDGE_R?'→':t===T.LEDGE_D?'↓':'←');
             ctx.fillText(arrow, sx + TILE/2 - 6, sy + TILE/2 + 6);
           }
@@ -783,7 +998,7 @@
       }
 
       // HUD
-      ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas'; ctx.fillStyle = '#cbd5e1';
+      ctx.font = '12px "EarlsRevenge", ui-monospace, SFMono-Regular, Menlo, Consolas'; ctx.fillStyle = '#cbd5e1';
       const under = map[idx(Player.tx, Player.ty)];
       const underName = under===T.FLOOR?'FLOOR':under===T.WALL?'WALL':under===T.ICE?'ICE':
                         under===T.LEDGE_U?'LEDGE_U':under===T.LEDGE_R?'LEDGE_R':
