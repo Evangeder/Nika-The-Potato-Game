@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>PNG Map Editor – ground + ceiling</title>
+  <title>Map Editor – JSON (Ground/Details/Details2/Ceiling/Ceiling2/Scripts)</title>
   <style>
     :root {
       --bg: #0f1115;
@@ -12,7 +12,6 @@
       --text: #e7eaf1;
       --muted: #9aa3b2;
       --accent: #6ea8fe;
-      --accent-2: #a78bfa;
       --danger: #ff6b6b;
       --grid: #2a3040;
     }
@@ -24,7 +23,7 @@
       color: var(--text);
       font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
       display: grid;
-      grid-template-columns: 260px 1fr;
+      grid-template-columns: 280px 1fr;
       grid-template-rows: auto 1fr;
       grid-template-areas:
         "sidebar toolbar"
@@ -74,7 +73,7 @@
       padding: 6px 8px;
     }
     .ctrl label { color: var(--muted); font-size: 12px; }
-    select, input[type="text"], input[type="number"], input[type="file"], button {
+    select, input[type="text"], input[type="number"], input[type="file"], textarea, button {
       background: #0f1320;
       color: var(--text);
       border: 1px solid #26314c;
@@ -82,45 +81,29 @@
       padding: 6px 8px;
       outline: none;
     }
-    select:focus, input:focus, button:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
+    textarea { resize: vertical; }
+    select:focus, input:focus, textarea:focus, button:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
     button { cursor: pointer; }
     button.primary { background: linear-gradient(180deg, #2a5fff, #2749e9); border-color: #3c5bff; }
     button.ghost { background: #111524; }
     button.danger { background: #2b1212; border-color: #4b1d1d; color: #ffc7c7; }
 
     #pickerPanel { padding: 10px; display: grid; gap: 8px; }
-    #pickerScroll {
-      overflow-y: auto; height: calc(100vh - 220px);
-      border: 1px dashed #2a2f45; border-radius: 10px;
-      padding: 8px; background: #0f1320;
-    }
+    #pickerScroll { overflow-y: auto; height: calc(100vh - 260px); border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; background: #0f1320; }
     #pickerCanvas { display: block; image-rendering: pixelated; }
     #pickedTilePreview { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
     #pickedTileCanvas { image-rendering: pixelated; border:1px solid #2a2f45; border-radius: 6px; background:#0b0f18; }
 
-    main#main {
-      grid-area: main;
-      background: var(--panel);
-      border: 1px solid #222838;
-      border-radius: 12px;
-      padding: 10px;
-      display: grid;
-      grid-template-rows: 1fr auto;
-      gap: 8px;
-      box-shadow: 0 6px 20px rgba(0,0,0,.25);
-    }
-    #canvasWrap {
-      overflow: auto; background: repeating-conic-gradient(from 45deg, #0d111a 0% 25%, #0a0d14 0% 50%) 50% / 32px 32px;
-      border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px;
-    }
+    main#main { grid-area: main; background: var(--panel); border: 1px solid #222838; border-radius: 12px; padding: 10px; display: grid; grid-template-rows: 1fr auto; gap: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+    #canvasWrap { overflow: auto; background: repeating-conic-gradient(from 45deg, #0d111a 0% 25%, #0a0d14 0% 50%) 50% / 32px 32px; border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; }
     #mapCanvas { display: block; image-rendering: pixelated; background: #0b0f18; border: 1px solid #26314c; border-radius: 8px; }
-    #statusBar { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; background: #101525; border: 1px solid #212942; border-radius: 8px; color: #c6ccdd; font-size: 12px; }
+    #statusBar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 6px 8px; background: #101525; border: 1px solid #212942; border-radius: 8px; color: #c6ccdd; font-size: 12px; }
 
-    .sep { height: 1px; background: #23293b; margin: 6px 0; }
     .hint { color: var(--muted); font-size: 12px; }
     .mini { font-size: 12px; color: #c8d0e5; }
     .flex { display: flex; gap: 8px; align-items: center; }
     .grid { display: grid; gap: 8px; }
+    .sep { height: 1px; background: #23293b; margin: 6px 0; }
   </style>
 </head>
 <body>
@@ -134,11 +117,11 @@
       </div>
       <div class="ctrl">
         <label for="tileSize">Tile</label>
-        <input type="number" id="tileSize" min="4" max="128" step="1" value="16" style="width:72px" />
+        <input type="number" id="tileSize" min="4" max="128" step="1" value="32" style="width:72px" />
         <span class="mini">px</span>
       </div>
       <div id="pickedTilePreview" class="ctrl">
-        <canvas id="pickedTileCanvas" width="32" height="32"></canvas>
+        <canvas id="pickedTileCanvas" width="64" height="64"></canvas>
         <div class="grid" style="gap:2px">
           <div class="mini">Akt. kafel: <span id="pickedLabel">(0,0)</span></div>
           <div class="mini">Typ (B): <span id="pickedTypeLabel">ground (0)</span></div>
@@ -148,7 +131,7 @@
       <div id="pickerScroll">
         <canvas id="pickerCanvas"></canvas>
       </div>
-      <div class="hint">Kliknij w picker, aby wybrać kafel. PPM na mapie – gumka (ustawia RGBA 0,0,0,255).</div>
+      <div class="hint">LPM: rysuj, PPM: usuń. ALT: pipeta. Warstwa <b>Scripts</b>: LPM dodaje/edytuje obiekt, PPM usuwa obiekt.</div>
     </div>
   </aside>
 
@@ -159,17 +142,25 @@
       <input id="mapName" type="text" placeholder="mapa_01" value="mapa_01" />
     </div>
 
-    <div class="ctrl" style="grid-column: span 3;">
+    <div class="ctrl" style="grid-column: span 5;">
       <label>Warstwa</label>
       <label class="flex"><input type="radio" name="layer" value="ground" checked> Ground</label>
+      <label class="flex"><input type="radio" name="layer" value="details"> Details</label>
+      <label class="flex"><input type="radio" name="layer" value="details2"> Details2</label>
       <label class="flex"><input type="radio" name="layer" value="ceiling"> Ceiling</label>
-      <label class="flex"><input type="checkbox" id="ghostOther" checked> Podgląd drugiej</label>
+      <label class="flex"><input type="radio" name="layer" value="ceiling2"> Ceiling2</label>
+      <label class="flex"><input type="radio" name="layer" value="scripts"> Scripts</label>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 2;">
+      <label class="flex"><input type="checkbox" id="ghostOther" checked> Podgląd pozostałych</label>
+      <label class="flex"><input type="checkbox" id="showGrid" checked> Siatka</label>
     </div>
 
     <div class="ctrl" style="grid-column: span 3;">
       <label for="typeSelect">Typ (B)</label>
       <select id="typeSelect"></select>
-      <span class="mini">Ceiling zawsze B=0</span>
+      <span class="mini">Ceiling* wymusza B=0</span>
     </div>
 
     <div class="ctrl" style="grid-column: span 3;">
@@ -179,30 +170,39 @@
       <label class="flex"><input type="checkbox" id="flagRot90"> Rot90°</label>
     </div>
 
-    <div class="ctrl" style="grid-column: span 4;">
+    <div class="ctrl" style="grid-column: span 3;">
       <label for="mapW">W</label>
-      <input id="mapW" type="number" value="32" min="1" max="512" style="width:72px" />
+      <input id="mapW" type="number" value="32" min="1" max="1024" style="width:72px" />
       <label for="mapH">H</label>
-      <input id="mapH" type="number" value="18" min="1" max="512" style="width:72px" />
+      <input id="mapH" type="number" value="18" min="1" max="1024" style="width:72px" />
       <button id="applySize" class="ghost">Zastosuj wymiary</button>
     </div>
 
-    <div class="ctrl" style="grid-column: span 3;">
+    <div class="ctrl" style="grid-column: span 2;">
       <label for="zoomRange">Zoom</label>
-      <input id="zoomRange" type="range" min="1" max="5" step="1" value="2" />
-      <span id="zoomLabel" class="mini">x2</span>
-    </div>
-
-    <div class="ctrl" style="grid-column: span 5;">
-      <button id="saveBtn" class="primary">SAVE (eksport PNG warstw)</button>
-      <button id="clearLayerBtn" class="danger">Wyczyść warstwę</button>
-      <label class="flex"><input type="checkbox" id="showGrid" checked> Siatka</label>
+      <input id="zoomRange" type="range" min="1" max="5" step="1" value="1" />
+      <span id="zoomLabel" class="mini">x1</span>
     </div>
 
     <div class="ctrl" style="grid-column: span 4;">
-      <label>Wczytaj PNG</label>
-      <input id="loadGround" type="file" accept="image/png" title="Wczytaj ground.png" />
-      <input id="loadCeiling" type="file" accept="image/png" title="Wczytaj ceiling.png" />
+      <button id="saveJsonBtn" class="primary">SAVE JSON</button>
+      <input id="loadJsonInput" type="file" accept="application/json" />
+      <button id="clearLayerBtn" class="danger">Wyczyść warstwę</button>
+    </div>
+
+    <!-- Script tools (visible only on Scripts layer) -->
+    <div id="scriptTools" class="ctrl" style="grid-column: 1 / -1; display:none;">
+      <strong>Scripts:</strong>
+      <label for="scriptKind">Kind</label>
+      <select id="scriptKind">
+        <option value="teleport">teleport</option>
+        <option value="npc">npc</option>
+        <option value="trigger">trigger</option>
+        <option value="note">note</option>
+      </select>
+      <label for="scriptProps">Props (JSON)</label>
+      <input id="scriptProps" type="text" placeholder='{"to":"map_b","x":2,"y":3}' style="min-width:320px" />
+      <span class="hint">LPM: postaw/edytuj obiekt na kratce. ALT+klik: pipeta obiektu.</span>
     </div>
   </header>
 
@@ -221,11 +221,9 @@
   <script>
     // ===== Konfiguracje =====
     const TILESETS = [
-      // Dodaj własne ścieżki PNG tutaj:
       './assets/sprites/tileset.png'
     ];
 
-    // Mapowanie nazw typów na liczby do kanału Blue (B)
     const TILE_TYPES = [
       { name: 'ground', value: 0 },
       { name: 'wall',   value: 1 },
@@ -236,40 +234,33 @@
       { name: 'decor',  value: 6 }
     ];
 
-    // Flagi w kanale Alpha (A) – dolny nibble
-    // bit0: flipX, bit1: flipY, bit2: rot90, bit3: (rezerw.)
+    // Flagi A (dolny nibble): bit0 flipX, bit1 flipY, bit2 rot90, bit3 rezerw.
     const FLAG = { FLIP_X:1, FLIP_Y:2, ROT_90:4 };
 
-    // Pusta kratka: RGBA 0,0,0,255 (zgodnie ze specyfikacją)
-    const EMPTY_RGBA = [0,0,0,255];
+    // Warstwy (kolejność rysowania)
+    const VISUAL_LAYERS = ['ground','details','details2','ceiling','ceiling2'];
+    const ALL_LAYERS = [...VISUAL_LAYERS, 'scripts'];
 
-    // ===== Stan aplikacji =====
+    // ===== Stan =====
     const state = {
       mapW: 32,
       mapH: 18,
-      tileSize: 16,
-      zoom: 2,
-      activeLayer: 'ground', // 'ground' | 'ceiling'
+      tileSize: 32,
+      zoom: 1,
+      activeLayer: 'ground',
       ghostOther: true,
       showGrid: true,
-      // aktualny pędzel (wybierany z pickera)
       brush: { tileX: 0, tileY: 0, typeB: 0, flagsA: 0 },
-      // warstwy z danymi RGBA per piksel
+      scriptBrush: { kind: 'teleport', props: {} },
       layers: {
-        ground: null,
-        ceiling: null
+        ground: null, details: null, details2: null, ceiling: null, ceiling2: null
       },
-      tileset: {
-        url: TILESETS[0],
-        img: null,
-        cols: 0,
-        rows: 0
-      },
-      mouseDown: false,
-      mouseButton: 0
+      scripts: [], // {kind, x, y, props}
+      tileset: { url: TILESETS[0], img: null, cols: 0, rows: 0 },
+      mouseDown: false, mouseButton: 0
     };
 
-    // ===== Elementy DOM =====
+    // ===== DOM =====
     const mapCanvas = document.getElementById('mapCanvas');
     const mapCtx = mapCanvas.getContext('2d');
     const pickerCanvas = document.getElementById('pickerCanvas');
@@ -293,12 +284,10 @@
     const ghostOther = document.getElementById('ghostOther');
     const showGrid = document.getElementById('showGrid');
 
-    const saveBtn = document.getElementById('saveBtn');
+    const saveJsonBtn = document.getElementById('saveJsonBtn');
+    const loadJsonInput = document.getElementById('loadJsonInput');
     const clearLayerBtn = document.getElementById('clearLayerBtn');
     const mapNameInput = document.getElementById('mapName');
-
-    const loadGround = document.getElementById('loadGround');
-    const loadCeiling = document.getElementById('loadCeiling');
 
     const posLabel = document.getElementById('posLabel');
     const tileLabel = document.getElementById('tileLabel');
@@ -308,13 +297,22 @@
     const pickedTypeLabel = document.getElementById('pickedTypeLabel');
     const pickedFlagsLabel = document.getElementById('pickedFlagsLabel');
 
+    const scriptTools = document.getElementById('scriptTools');
+    const scriptKind = document.getElementById('scriptKind');
+    const scriptProps = document.getElementById('scriptProps');
+
     // Warstwa wyboru
     document.querySelectorAll('input[name="layer"]').forEach(r => {
       r.addEventListener('change', () => {
         state.activeLayer = r.value;
         layerLabel.textContent = state.activeLayer;
-        // Ceiling: typ B wymuszony na 0 (dekoracyjna warstwa)
-        typeSelect.disabled = state.activeLayer === 'ceiling';
+        const ceilingMode = (state.activeLayer === 'ceiling' || state.activeLayer === 'ceiling2');
+        typeSelect.disabled = ceilingMode || state.activeLayer==='scripts';
+        flagFlipX.disabled = state.activeLayer==='scripts';
+        flagFlipY.disabled = state.activeLayer==='scripts';
+        flagRot90.disabled = state.activeLayer==='scripts';
+        // script tools toggle
+        scriptTools.style.display = state.activeLayer==='scripts' ? '' : 'none';
         render();
       });
     });
@@ -322,7 +320,6 @@
     ghostOther.addEventListener('change', () => { state.ghostOther = ghostOther.checked; render(); });
     showGrid.addEventListener('change', () => { state.showGrid = showGrid.checked; render(); });
 
-    // Inicjalizacja selectów
     function initTilesetSelect() {
       tilesetSelect.innerHTML = '';
       TILESETS.forEach((url, i) => {
@@ -354,7 +351,7 @@
     }));
 
     tileSizeInput.addEventListener('change', () => {
-      const v = clamp(parseInt(tileSizeInput.value,10)||16, 4, 128);
+      const v = clamp(parseInt(tileSizeInput.value,10)||32, 4, 128);
       state.tileSize = v; tileSizeInput.value = v;
       computeTilesetGrid();
       drawPicker();
@@ -366,14 +363,14 @@
     mapWInput.addEventListener('change', syncSizeInputs);
     mapHInput.addEventListener('change', syncSizeInputs);
     function syncSizeInputs(){
-      mapWInput.value = clamp(parseInt(mapWInput.value,10)||state.mapW,1, 1024);
-      mapHInput.value = clamp(parseInt(mapHInput.value,10)||state.mapH,1, 1024);
+      mapWInput.value = clamp(parseInt(mapWInput.value,10)||state.mapW,1, 4096);
+      mapHInput.value = clamp(parseInt(mapHInput.value,10)||state.mapH,1, 4096);
     }
 
     applySizeBtn.addEventListener('click', () => {
       const W = parseInt(mapWInput.value,10);
       const H = parseInt(mapHInput.value,10);
-      resizeMap(W,H);
+      resizeMap(W,H,true);
       render();
     });
 
@@ -384,7 +381,10 @@
       render();
     });
 
-    // ===== Tileset ładowanie i picker =====
+    scriptKind.addEventListener('change', () => { state.scriptBrush.kind = scriptKind.value; });
+    scriptProps.addEventListener('change', () => { const p = tryParseJSON(scriptProps.value); if (p!==undefined) state.scriptBrush.props = p; });
+
+    // ===== Tileset =====
     async function loadTileset(url){
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -404,7 +404,6 @@
       const ts = state.tileSize;
       state.tileset.cols = Math.floor(img.width / ts);
       state.tileset.rows = Math.floor(img.height / ts);
-      // dopasuj rozmiar pickera
       pickerCanvas.width = state.tileset.cols * ts;
       pickerCanvas.height = state.tileset.rows * ts;
     }
@@ -416,11 +415,10 @@
       pickerCtx.imageSmoothingEnabled = false;
       pickerCtx.drawImage(img, 0,0);
       // siatka
-      pickerCtx.strokeStyle = '#223';
-      pickerCtx.lineWidth = 1;
+      pickerCtx.strokeStyle = '#223'; pickerCtx.lineWidth = 1;
       for (let x=0; x<=pickerCanvas.width; x+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(x+.5,0); pickerCtx.lineTo(x+.5,pickerCanvas.height); pickerCtx.stroke(); }
       for (let y=0; y<=pickerCanvas.height; y+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(0,y+.5); pickerCtx.lineTo(pickerCanvas.width,y+.5); pickerCtx.stroke(); }
-      // highlight wybranego kafla
+      // highlight
       pickerCtx.strokeStyle = '#6ea8fe'; pickerCtx.lineWidth = 2;
       pickerCtx.strokeRect(state.brush.tileX*ts+1, state.brush.tileY*ts+1, ts-2, ts-2);
     }
@@ -444,11 +442,10 @@
       pickedCanvas.width = ts*2; pickedCanvas.height = ts*2;
       pickedCtx.imageSmoothingEnabled = false;
       pickedCtx.clearRect(0,0,pickedCanvas.width,pickedCanvas.height);
-      // narysuj z transformacjami jak na mapie (dla podglądu pędzla)
       const sx = state.brush.tileX * ts; const sy = state.brush.tileY * ts;
       pickedCtx.save();
       pickedCtx.translate(pickedCanvas.width/2, pickedCanvas.height/2);
-      applyBrushTransform(pickedCtx, ts);
+      applyBrushTransform(pickedCtx);
       pickedCtx.drawImage(img, sx, sy, ts, ts, -ts, -ts, ts*2, ts*2);
       pickedCtx.restore();
     }
@@ -460,19 +457,32 @@
       pickedFlagsLabel.textContent = '0b' + (state.brush.flagsA & 0x0f).toString(2).padStart(4,'0');
     }
 
-    // ===== Mapa: dane i render =====
-    function allocateLayerArray(W,H){
-      const arr = new Uint8ClampedArray(W*H*4);
-      // wypełnij pustą kratką RGBA 0,0,0,255
-      for (let i=0;i<arr.length;i+=4){ arr[i]=0; arr[i+1]=0; arr[i+2]=0; arr[i+3]=255; }
-      return arr;
+    // ===== Dane mapy =====
+    function allocateLayerGrid(W,H){
+      const g = new Array(H);
+      for (let y=0; y<H; y++){ g[y] = new Array(W).fill(null); }
+      return g;
     }
 
-    function resizeMap(W,H){
+    function resizeMap(W,H, preserve=false){
+      const oldW = state.mapW, oldH = state.mapH;
+      const oldLayers = preserve ? { ...state.layers } : null;
+      const oldScripts = preserve ? [...state.scripts] : null;
       state.mapW = W; state.mapH = H;
       mapWInput.value = W; mapHInput.value = H;
-      state.layers.ground = allocateLayerArray(W,H);
-      state.layers.ceiling = allocateLayerArray(W,H);
+      // realloc warstw
+      for (const L of VISUAL_LAYERS){ state.layers[L] = allocateLayerGrid(W,H); }
+      // przenieś zawartość
+      if (preserve && oldLayers){
+        const minW = Math.min(oldW, W), minH = Math.min(oldH, H);
+        for (const L of VISUAL_LAYERS){
+          const src = oldLayers[L]; if (!src) continue;
+          for (let y=0;y<minH;y++) for (let x=0;x<minW;x++) state.layers[L][y][x] = src[y][x];
+        }
+        state.scripts = oldScripts.filter(s => s.x < W && s.y < H);
+      } else {
+        state.scripts = [];
+      }
       resizeMapCanvas();
     }
 
@@ -484,48 +494,42 @@
       mapCtx.imageSmoothingEnabled = false;
     }
 
-    function setTile(layer, x, y, r,g,b,a){
+    function setTile(layer, x, y, tile){
       if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
-      const i = 4 * (y*state.mapW + x);
-      const arr = state.layers[layer];
-      arr[i]=r; arr[i+1]=g; arr[i+2]=b; arr[i+3]=a;
+      state.layers[layer][y][x] = tile; // tile = {r,g,b,a} lub null
     }
 
     function getTile(layer, x, y){
-      const i = 4 * (y*state.mapW + x);
-      const arr = state.layers[layer];
-      return { r: arr[i], g: arr[i+1], b: arr[i+2], a: arr[i+3] };
+      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return null;
+      return state.layers[layer][y][x];
     }
 
-    function isEmptyTile(px){ return px.r===0 && px.g===0 && px.b===0 && px.a===255; }
+    function isCeilingLayer(name){ return name==='ceiling' || name==='ceiling2'; }
 
+    // ===== Render =====
     function render(){
-      const ts = state.tileSize; const z = state.zoom;
-      const drawLayer = (layer, alpha=1.0) => {
-        const arr = state.layers[layer]; if (!arr) return;
+      const ts = state.tileSize; const z = state.zoom; const {img} = state.tileset;
+      mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
+      const drawLayer = (name, alpha) => {
+        const grid = state.layers[name]; if (!grid || !img) return;
         mapCtx.save(); mapCtx.globalAlpha = alpha; mapCtx.scale(z,z);
         for (let y=0; y<state.mapH; y++){
           for (let x=0; x<state.mapW; x++){
-            const i = 4 * (y*state.mapW + x);
-            const r = arr[i], g = arr[i+1], b = arr[i+2], a = arr[i+3];
-            if (r===0 && g===0 && b===0 && a===255) continue; // pusty
-            drawTileAt(x,y, r,g, /*b*/b, /*a*/a);
+            const t = grid[y][x]; if (!t) continue;
+            drawTileAt(x,y, t.r, t.g, t.b, t.a);
           }
         }
         mapCtx.restore();
       };
 
-      // wyczyść
-      mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
+      for (const L of VISUAL_LAYERS){
+        const alpha = (state.activeLayer===L) ? 1.0 : (state.ghostOther?0.35:0.15);
+        drawLayer(L, alpha);
+      }
 
-      // GROUND
-      const groundTop = state.activeLayer==='ground' ? 1.0 : (state.ghostOther?0.7:1.0);
-      const ceilTop = state.activeLayer==='ceiling' ? 1.0 : (state.ghostOther?0.7:1.0);
-      // Zawsze rysujemy ground, potem ceiling nad nim
-      drawLayer('ground', state.activeLayer==='ground'?1.0:(state.ghostOther?0.35:0.15));
-      drawLayer('ceiling', state.activeLayer==='ceiling'?1.0:(state.ghostOther?0.35:0.15));
+      // Scripts overlay (ikony)
+      drawScriptsOverlay();
 
-      // siatka
       if (state.showGrid){
         mapCtx.save(); mapCtx.scale(z,z);
         mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -537,18 +541,37 @@
 
     function drawTileAt(tx,ty, r,g, b, a){
       const { img } = state.tileset; if (!img) return;
-      const ts = state.tileSize;
-      const z = state.zoom;
+      const ts = state.tileSize; const z = state.zoom;
       const sx = r * ts; const sy = g * ts;
       const dx = tx * ts * z; const dy = ty * ts * z;
       mapCtx.save();
       mapCtx.translate(dx + (ts*z)/2, dy + (ts*z)/2);
-      applyFlagsTransform(mapCtx, a, ts*z);
+      applyFlagsTransform(mapCtx, a);
       mapCtx.drawImage(img, sx, sy, ts, ts, -(ts*z)/2, -(ts*z)/2, ts*z, ts*z);
       mapCtx.restore();
     }
 
-    function applyBrushTransform(ctx, ts){
+    function drawScriptsOverlay(){
+      const ts = state.tileSize; const z = state.zoom;
+      mapCtx.save(); mapCtx.scale(z,z);
+      for (const s of state.scripts){
+        const x = s.x*ts, y = s.y*ts;
+        mapCtx.fillStyle = 'rgba(255,215,0,0.85)';
+        mapCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+        mapCtx.lineWidth = 2;
+        mapCtx.beginPath();
+        mapCtx.rect(x+2, y+2, ts-4, ts-4);
+        mapCtx.fill(); mapCtx.stroke();
+        mapCtx.fillStyle = '#000';
+        mapCtx.font = `${Math.floor(ts*0.5)}px monospace`;
+        mapCtx.textAlign = 'center'; mapCtx.textBaseline = 'middle';
+        const label = (s.kind||'').slice(0,1).toUpperCase();
+        mapCtx.fillText(label, x+ts/2, y+ts/2);
+      }
+      mapCtx.restore();
+    }
+
+    function applyBrushTransform(ctx){
       const f = state.brush.flagsA & 0x0f;
       if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
       const sx = (f & FLAG.FLIP_X) ? -1 : 1;
@@ -556,7 +579,7 @@
       ctx.scale(sx, sy);
     }
 
-    function applyFlagsTransform(ctx, a, size){
+    function applyFlagsTransform(ctx, a){
       const f = a & 0x0f;
       if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
       const sx = (f & FLAG.FLIP_X) ? -1 : 1;
@@ -564,13 +587,11 @@
       ctx.scale(sx, sy);
     }
 
-    // ===== Rysowanie na mapie =====
+    // ===== Interakcja mapy =====
     mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
 
     mapCanvas.addEventListener('mousedown', (e) => {
-      const btn = e.button; // 0=LB, 2=RB
-      state.mouseDown = true; state.mouseButton = btn;
-      paintFromEvent(e);
+      state.mouseDown = true; state.mouseButton = e.button; paintFromEvent(e);
     });
     mapCanvas.addEventListener('mousemove', (e) => {
       updateStatusFromEvent(e);
@@ -581,9 +602,9 @@
     function updateStatusFromEvent(e){
       const p = pointerInCanvas(e, mapCanvas);
       posLabel.textContent = `${Math.floor(p.x)},${Math.floor(p.y)}`;
-      const ts = state.tileSize*state.zoom;
-      const tx = clamp(Math.floor(p.x / ts), 0, state.mapW-1);
-      const ty = clamp(Math.floor(p.y / ts), 0, state.mapH-1);
+      const tsz = state.tileSize*state.zoom;
+      const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW-1);
+      const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH-1);
       tileLabel.textContent = `${tx},${ty}`;
     }
 
@@ -594,34 +615,55 @@
       const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW-1);
       const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH-1);
 
-      if (altPick){ // Pipeta – pobierz z aktywnej warstwy
-        const px = getTile(state.activeLayer, tx, ty);
-        if (!isEmptyTile(px)){
-          state.brush.tileX = px.r;
-          state.brush.tileY = px.g;
-          state.brush.typeB = px.b;
-          state.brush.flagsA = px.a;
-          typeSelect.value = state.brush.typeB;
-          flagFlipX.checked = !!(px.a & FLAG.FLIP_X);
-          flagFlipY.checked = !!(px.a & FLAG.FLIP_Y);
-          flagRot90.checked = !!(px.a & FLAG.ROT_90);
-          drawPicker();
-          renderPickedPreview();
-          updatePickedLabels();
+      if (state.activeLayer==='scripts'){
+        if (altPick){ // pipeta obiektu
+          const s = findScriptAt(tx,ty); if (s){
+            scriptKind.value = s.kind; state.scriptBrush.kind = s.kind;
+            scriptProps.value = JSON.stringify(s.props||{}); state.scriptBrush.props = s.props||{};
+          }
+          return;
+        }
+        if (state.mouseButton===2){ // usuń obiekt
+          removeScriptAt(tx,ty); render(); return;
+        } else {
+          // dodaj/edytuj obiekt
+          const props = tryParseJSON(scriptProps.value); if (props!==undefined) state.scriptBrush.props = props;
+          upsertScriptAt(tx,ty, state.scriptBrush.kind, state.scriptBrush.props);
+          render(); return;
+        }
+      }
+
+      if (altPick){ // pipeta kafla z aktywnej warstwy
+        const t = getTile(state.activeLayer, tx, ty);
+        if (t){
+          state.brush.tileX = t.r; state.brush.tileY = t.g; state.brush.typeB = t.b; state.brush.flagsA = t.a;
+          typeSelect.value = String(state.brush.typeB);
+          flagFlipX.checked = !!(t.a & FLAG.FLIP_X);
+          flagFlipY.checked = !!(t.a & FLAG.FLIP_Y);
+          flagRot90.checked = !!(t.a & FLAG.ROT_90);
+          drawPicker(); renderPickedPreview(); updatePickedLabels();
         }
         return;
       }
 
       if (state.mouseButton === 2){ // PPM – gumka
-        setTile(state.activeLayer, tx, ty, ...EMPTY_RGBA);
+        setTile(state.activeLayer, tx, ty, null);
       } else { // LPM – rysuj
         const r = state.brush.tileX & 255;
         const g = state.brush.tileY & 255;
-        const b = state.activeLayer==='ceiling' ? 0 : (state.brush.typeB & 255);
-        const a = state.brush.flagsA & 255; // Ceiling też może mieć rot/flip dla dekoru
-        setTile(state.activeLayer, tx, ty, r,g,b,a);
+        const b = isCeilingLayer(state.activeLayer) ? 0 : (state.brush.typeB & 255);
+        const a = state.brush.flagsA & 255;
+        setTile(state.activeLayer, tx, ty, {r,g,b,a});
       }
       render();
+    }
+
+    function findScriptAt(x,y){ return state.scripts.find(s => s.x===x && s.y===y); }
+    function removeScriptAt(x,y){ state.scripts = state.scripts.filter(s => !(s.x===x && s.y===y)); }
+    function upsertScriptAt(x,y, kind, props){
+      const ex = findScriptAt(x,y);
+      if (ex){ ex.kind = kind; ex.props = deepClone(props||{}); }
+      else state.scripts.push({ kind, x, y, props: deepClone(props||{}) });
     }
 
     function pointerInCanvas(evt, canvas){
@@ -629,57 +671,66 @@
       return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) };
     }
 
-    // ===== SAVE / LOAD =====
-    function savePNGs(){
-      const name = (mapNameInput.value||'mapa').replace(/\s+/g,'_');
-      saveLayerPNG('ground', `${name}_ground.png`);
-      saveLayerPNG('ceiling', `${name}_ceiling.png`);
+    // ===== SAVE / LOAD JSON =====
+    function saveJSON(){
+      const data = {
+        name: (mapNameInput.value||'mapa').replace(/\s+/g,'_'),
+        tileset: state.tileset.url,
+        tileSize: state.tileSize,
+        width: state.mapW, height: state.mapH,
+        layers: {},
+        scripts: state.scripts
+      };
+      for (const L of VISUAL_LAYERS){ data.layers[L] = state.layers[L]; }
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${data.name}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
     }
 
-    function saveLayerPNG(layer, filename){
-      const off = document.createElement('canvas');
-      off.width = state.mapW; off.height = state.mapH;
-      const ictx = off.getContext('2d');
-      const img = ictx.createImageData(state.mapW, state.mapH);
-      img.data.set(state.layers[layer]);
-      ictx.putImageData(img, 0, 0);
-      off.toBlob((blob) => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-      }, 'image/png');
-    }
-
-    async function loadLayerFromFile(file, layer){
+    async function loadJSON(file){
       if (!file) return;
-      const url = URL.createObjectURL(file);
-      const img = new Image(); img.src = url; await img.decode();
-      const off = document.createElement('canvas');
-      off.width = img.width; off.height = img.height;
-      const ictx = off.getContext('2d');
-      ictx.drawImage(img,0,0);
-      const data = ictx.getImageData(0,0,off.width,off.height).data;
-      // dopasuj mapę do rozmiaru wczytanego PNG (1 piksel = 1 tile)
-      resizeMap(off.width, off.height);
-      state.layers[layer].set(data);
-      URL.revokeObjectURL(url);
+      const text = await file.text();
+      let obj; try { obj = JSON.parse(text); } catch(e){ alert('Błędny JSON'); return; }
+      // minimalna walidacja
+      const W = obj.width|0, H = obj.height|0; if (!W||!H){ alert('Brak width/height w JSON'); return; }
+      state.tileSize = obj.tileSize|0 || state.tileSize; tileSizeInput.value = state.tileSize;
+      if (obj.tileset){ await loadTileset(obj.tileset); tilesetSelect.value = obj.tileset; }
+      resizeMap(W,H,false);
+      for (const L of VISUAL_LAYERS){
+        if (obj.layers && obj.layers[L]){
+          // skopiuj w granicach mapy
+          for (let y=0;y<Math.min(H, obj.layers[L].length);y++){
+            for (let x=0;x<Math.min(W, obj.layers[L][y].length);x++){
+              const t = obj.layers[L][y][x];
+              state.layers[L][y][x] = t && typeof t.r==='number' ? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null;
+            }
+          }
+        }
+      }
+      state.scripts = Array.isArray(obj.scripts) ? obj.scripts.map(s=>({kind:String(s.kind||'note'), x:s.x|0, y:s.y|0, props: s.props||{}})) : [];
+      mapNameInput.value = (obj.name||'mapa');
       render();
     }
 
-    saveBtn.addEventListener('click', savePNGs);
+    saveJsonBtn.addEventListener('click', saveJSON);
+    loadJsonInput.addEventListener('change', (e)=> loadJSON(e.target.files[0]));
     clearLayerBtn.addEventListener('click', () => {
-      const arr = state.layers[state.activeLayer];
-      for (let i=0;i<arr.length;i+=4){ arr[i]=0; arr[i+1]=0; arr[i+2]=0; arr[i+3]=255; }
+      if (state.activeLayer==='scripts') { state.scripts = []; }
+      else {
+        const L = state.activeLayer; for (let y=0;y<state.mapH;y++) for (let x=0;x<state.mapW;x++) state.layers[L][y][x]=null;
+      }
       render();
     });
-    loadGround.addEventListener('change', (e)=> loadLayerFromFile(e.target.files[0], 'ground'));
-    loadCeiling.addEventListener('change', (e)=> loadLayerFromFile(e.target.files[0], 'ceiling'));
+
+    // ===== Utils =====
+    function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+    function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+    function tryParseJSON(s){ if (!s || !s.trim()) return {}; try { return JSON.parse(s); } catch(e){ alert('Props: błędny JSON'); return undefined; } }
 
     // ===== Start =====
-    function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
-
     function boot(){
       initTilesetSelect();
       initTypeSelect();
@@ -688,8 +739,8 @@
       updatePickedLabels();
       loadTileset(state.tileset.url);
       zoomLabel.textContent = `x${state.zoom}`;
+      scriptKind.value = state.scriptBrush.kind;
     }
-
     boot();
   </script>
 </body>
