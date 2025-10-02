@@ -584,39 +584,51 @@
     const {tx,ty} = tileFromEvent(e);
 
     if (state.activeLayer==='scripts'){
+      // ALT = pipeta + zaznaczenie
       if (altPick){
         const s = findScriptAt(tx,ty);
         if (s){
-          scriptKind.value = s.kind; state.scriptBrush.kind=s.kind;
-          scriptProps.value = JSON.stringify(s.props||{}); state.scriptBrush.props = s.props||{};
+          state.selectedScript = {x:s.x, y:s.y};
+          scriptKind.value = s.kind;
+          scriptProps.value = JSON.stringify(s.props||{});
+          render();
+        }
+        return;
+      }
+
+      // PPM na Scripts nic nie robi (ew. tylko zaznacza jeśli coś pod kursorem)
+      if (btn===2){
+        const s = findScriptAt(tx,ty);
+        if (s){
           state.selectedScript = {x:s.x, y:s.y};
           render();
         }
         return;
       }
-      beginAction({ kind: btn===2?'script-remove':'script-upsert', layer:'scripts' });
-      if (btn===2){
-        recordScriptChange(tx,ty, findScriptAt(tx,ty), null);
-        removeScriptAt(tx,ty,false);
-        if (state.selectedScript && state.selectedScript.x===tx && state.selectedScript.y===ty) state.selectedScript=null;
-      } else {
-        const props = tryParseJSON(scriptProps.value);
-        if (props!==undefined) state.scriptBrush.props=props;
-        const before = findScriptAt(tx,ty);
-        const after = {kind:state.scriptBrush.kind, x:tx, y:ty, props:deepClone(state.scriptBrush.props)};
-        recordScriptChange(tx,ty, before, after);
-        upsertScriptAt(tx,ty,state.scriptBrush.kind,state.scriptBrush.props,false);
-        state.selectedScript = {x:tx, y:ty};
-      }
-      endAction(); render(); return;
-    }
 
-    // Visual layers
-    if (altPick){
-      const t = getTile(state.activeLayer, tx, ty);
-      if (t){ setBrushFromTile(t); }
+      // LPM: jeśli brak obiektu -> dodaj; jeśli jest -> tylko zaznacz (bez modyfikacji)
+      const ex = findScriptAt(tx,ty);
+      if (ex){
+        state.selectedScript = {x:ex.x, y:ex.y};
+        scriptKind.value = ex.kind;
+        scriptProps.value = JSON.stringify(ex.props||{});
+        render();
+      } else {
+        beginAction({ kind:'script-add', layer:'scripts' });
+        const parsed = tryParseJSON(scriptProps.value);
+        if (parsed!==undefined) state.scriptBrush.props = parsed;
+        const after = { kind: state.scriptBrush.kind, x: tx, y: ty, props: deepClone(state.scriptBrush.props) };
+        recordScriptChange(tx,ty, null, after);
+        upsertScriptAt(tx,ty, after.kind, after.props, false);
+        state.selectedScript = {x:tx, y:ty};
+        endAction();
+        render();
+      }
       return;
     }
+
+    // --- warstwy wizualne ---
+    if (altPick){ const t = getTile(state.activeLayer, tx, ty); if (t){ setBrushFromTile(t); } return; }
 
     if (state.tool==='pencil'){
       beginAction({ kind: btn===2?'erase':'paint', layer: state.activeLayer });
