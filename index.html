@@ -525,6 +525,7 @@
       Dialog.justOpened = true;
 
       npc.facing = dirToward(npc.tx, npc.ty, Player.tx, Player.ty);
+      PlaySFX('blip');
     }
 
     function advanceDialog(){
@@ -608,6 +609,17 @@
     }
     generateMap();
 
+    // === Audio dictionary ===
+    const AUDIO = {
+      SFX: {
+        blip:   './assets/sfx/ui/blip.wav',     // kliknięcie A/B w dialogu
+        hop:    './assets/sfx/hop.wav'          // skok przez ledge
+      },
+      MUSIC: {
+        village: './assets/music/Village_theme_3.mp3' // BGM na start
+      }
+    };
+
     /* ===== Audio (WebAudio) – hop sfx ===== */
     let audioCtx=null, masterGain=null;
     function ensureAudio(){
@@ -623,19 +635,121 @@
       masterGain.gain.value = 0.08; // cicho, mobilnie
       masterGain.connect(audioCtx.destination);
     }
-    function playHop(){
-      if (!audioCtx) return;
-      const t = audioCtx.currentTime;
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(660, t);
-      o.frequency.exponentialRampToValueAtTime(990, t+0.08);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.22, t+0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t+0.16);
-      o.connect(g); g.connect(masterGain);
-      o.start(t); o.stop(t+0.18);
+    
+    /* ===== AudioCtrl: PlayMusic, StopMusic, PlaySFX ===== */
+    const AudioCtrl = {
+      ctx: null,
+      master: null,
+      sfxGain: null,
+      musicGain: null,
+      buffers: new Map(),   // url -> AudioBuffer
+      musicSource: null,    // aktualny grający BufferSource
+      musicName: null,
+      volume: { master: 0.9, music: 0.8, sfx: 1.0 },
+      ready: false
+    };
+
+    function initAudio(){
+      if (AudioCtrl.ready) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { console.warn('WebAudio not supported'); return; }
+      const ctx = new AC();
+
+      const master = ctx.createGain(); master.gain.value = AudioCtrl.volume.master;
+      const musicGain = ctx.createGain(); musicGain.gain.value = 0.0; // fade-in
+      const sfxGain = ctx.createGain(); sfxGain.gain.value = AudioCtrl.volume.sfx;
+
+      musicGain.connect(master);
+      sfxGain.connect(master);
+      master.connect(ctx.destination);
+
+      AudioCtrl.ctx = ctx;
+      AudioCtrl.master = master;
+      AudioCtrl.musicGain = musicGain;
+      AudioCtrl.sfxGain = sfxGain;
+      AudioCtrl.ready = true;
+    }
+
+    async function resumeAudio(){
+      initAudio();
+      if (!AudioCtrl.ctx) return;
+      try { if (AudioCtrl.ctx.state === 'suspended') await AudioCtrl.ctx.resume(); } catch(_){}
+    }
+
+    async function loadBuffer(url){
+      if (AudioCtrl.buffers.has(url)) return AudioCtrl.buffers.get(url);
+      const res = await fetch(url);
+      const arr = await res.arrayBuffer();
+      const buf = await AudioCtrl.ctx.decodeAudioData(arr);
+      AudioCtrl.buffers.set(url, buf);
+      return buf;
+    }
+
+    async function PlaySFX(name, opts={}){
+      try{
+        await resumeAudio();
+        const path = AUDIO.SFX[name];
+        if (!path || !AudioCtrl.ctx) return;
+        const buf = await loadBuffer(path);
+        const src = AudioCtrl.ctx.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = opts.rate || 1.0;
+        const g = AudioCtrl.ctx.createGain();
+        g.gain.value = Math.max(0, Math.min(1, (opts.volume ?? 1) * AudioCtrl.volume.sfx));
+        src.connect(g); g.connect(AudioCtrl.sfxGain);
+        src.start(0);
+      }catch(e){ /* no-op */ }
+    }
+
+    async function PlayMusic(name, {loop=true, fade=0.5}={}){
+      try{
+        await resumeAudio();
+        if (!AudioCtrl.ctx) return;
+        if (AudioCtrl.musicName === name) return; // już gra
+
+        // wygasz poprzednią
+        await StopMusic({fade});
+
+        const path = AUDIO.MUSIC[name];
+        if (!path) return;
+        const buf = await loadBuffer(path);
+        const src = AudioCtrl.ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = loop;
+        src.connect(AudioCtrl.musicGain);
+        src.start(0);
+        AudioCtrl.musicSource = src;
+        AudioCtrl.musicName = name;
+
+        // fade-in
+        const t = AudioCtrl.ctx.currentTime;
+        const target = Math.max(0, Math.min(1, AudioCtrl.volume.music));
+        AudioCtrl.musicGain.gain.cancelScheduledValues(t);
+        AudioCtrl.musicGain.gain.setValueAtTime(0, t);
+        AudioCtrl.musicGain.gain.linearRampToValueAtTime(target, t + (fade||0));
+      }catch(e){ /* no-op */ }
+    }
+
+    async function StopMusic({fade=0.4}={}){
+      if (!AudioCtrl.ctx || !AudioCtrl.musicSource) return;
+      const t = AudioCtrl.ctx.currentTime;
+      const g = AudioCtrl.musicGain.gain;
+      try{
+        g.cancelScheduledValues(t);
+        if (fade && fade > 0){
+          const cur = g.value;
+          g.setValueAtTime(cur, t);
+          g.linearRampToValueAtTime(0.0001, t + fade);
+          setTimeout(()=>{
+            try{ AudioCtrl.musicSource && AudioCtrl.musicSource.stop(); }catch(_){}
+            AudioCtrl.musicSource = null; AudioCtrl.musicName = null;
+          }, Math.ceil(fade*1000)+20);
+        } else {
+          AudioCtrl.musicSource.stop();
+          AudioCtrl.musicSource = null; AudioCtrl.musicName = null;
+          g.setValueAtTime(0, t);
+        }
+      }catch(_){}
     }
 
     /* ===== Player – płynny per-tile + hop na ledge ===== */
@@ -781,8 +895,10 @@
         // Skip tylko jeśli to NIE jest pierwsza klatka po otwarciu
         if (!Dialog.justOpened){
           if (Dialog.typing && (justPressedA || justPressedB)){
+            PlaySFX('blip');
             finishTyping();
           } else if (!Dialog.typing && justPressedA){
+            PlaySFX('blip');
             advanceDialog();
           }
         }
@@ -821,7 +937,7 @@
           Player.dirKey = held; Player.dx = dx; Player.dy = dy;
           Player.segmentTiles = trySeg.seg || 1;
           Player.isHopping = Player.segmentTiles > 1;
-          if (Player.isHopping) { ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(e){} playHop(); }
+          if (Player.isHopping) { PlaySFX('hop', { volume: 0.9, rate: 1.0 }); }
           Player.progress = 0;
         }
       }
@@ -1132,8 +1248,9 @@
         setTimeout(scrollNudge, 50);
         setTimeout(scrollNudge, 200);
       }
-      ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(_){}
+      await resumeAudio();
       tryFullscreenNonBlocking();
+      PlayMusic('village', { loop: true, fade: 0.8 });
       startOverlay.classList.add('hidden'); bumpLayoutFixes();
       if(!running){ running=true; lastTime=performance.now(); requestAnimationFrame(step); }
     });
