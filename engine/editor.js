@@ -980,3 +980,536 @@
     });
   }
  
+    // ========== Actions rendering ==========
+
+  function renderActionItem(act, i, list){
+    const tpl = document.getElementById('tplActionItem');
+    const root = tpl.content.firstElementChild.cloneNode(true);
+
+    const head = root.querySelector('.flow__head');
+    const body = root.querySelector('.flow__body');
+    const badge = root.querySelector('[data-step]');
+    const labelEl = root.querySelector('.label');
+
+    root.dataset.index = String(i);
+    badge.textContent = String(i+1);
+
+    // Style by type
+    const typeClass = {
+      move: 'is-move',
+      dialog: 'is-dialog',
+      sleep: 'is-sleep',
+      battle: 'is-battle',
+      jump: 'is-jump',
+      inventory: 'is-inventory'
+    }[act.type] || '';
+    if (typeClass) root.classList.add(typeClass);
+
+    // Title/label
+    labelEl.textContent = actionTitle(act);
+
+    // Controls
+    const btnCollapse = root.querySelector('.btn-collapse');
+    const btnDup = root.querySelector('.btn-dup');
+    const btnDel = root.querySelector('.btn-del');
+
+    btnCollapse.addEventListener('click', () => {
+      root.classList.toggle('is-collapsed');
+    });
+    btnDup.addEventListener('click', () => {
+      duplicateActionAt(i);
+    });
+    btnDel.addEventListener('click', () => {
+      removeActionAt(i);
+    });
+
+    // Drag & drop reordering
+    const dragHandle = root.querySelector('.dragHandle');
+    root.draggable = true;
+    dragHandle.addEventListener('mousedown', () => { root.classList.add('is-dragging'); });
+    root.addEventListener('dragstart', (e) => {
+      root.classList.add('is-dragging');
+      e.dataTransfer.setData('text/plain', String(i));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    root.addEventListener('dragend', () => root.classList.remove('is-dragging'));
+    root.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    root.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const to = i;
+      if (!Number.isNaN(from) && from !== to){
+        moveAction(from, to);
+      }
+    });
+
+    // Body editor
+    buildActionEditor(body, act, i);
+
+    return root;
+  }
+
+  function actionTitle(act){
+    switch(act.type){
+      case 'move': return 'Ruch obiektu';
+      case 'dialog': return 'Dialogue box';
+      case 'sleep': return 'Sleep (oczekiwanie)';
+      case 'battle': return 'Wejście w walkę';
+      case 'jump': return 'Animacja podskoku';
+      case 'inventory': return 'Ekwipunek: add/remove';
+      default: return 'Action';
+    }
+  }
+
+  function buildActionEditor(container, act, idx){
+    container.innerHTML = '';
+    const appendRow = (label, inputEl, note) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const l = document.createElement('label');
+      l.textContent = label;
+      row.appendChild(l);
+      const cell = document.createElement('div');
+      cell.appendChild(inputEl);
+      if (note){
+        const n = document.createElement('div');
+        n.className = 'note';
+        n.textContent = note;
+        cell.appendChild(n);
+      }
+      row.appendChild(cell);
+      container.appendChild(row);
+      return {row, cell};
+    };
+
+    // Small helpers
+    const num = (v, step='1') => {
+      const i = document.createElement('input');
+      i.type = 'number';
+      i.step = step;
+      i.value = String(v|0);
+      return i;
+    };
+    const numf = (v) => {
+      const i = document.createElement('input');
+      i.type = 'number';
+      i.step = '0.01';
+      i.value = String(Number(v || 0));
+      return i;
+    };
+    const txt = (v, placeholder='') => {
+      const i = document.createElement('input');
+      i.type = 'text';
+      i.value = v ?? '';
+      if (placeholder) i.placeholder = placeholder;
+      return i;
+    };
+    const area = (v, placeholder='') => {
+      const t = document.createElement('textarea');
+      t.value = v ?? '';
+      if (placeholder) t.placeholder = placeholder;
+      t.rows = 3;
+      return t;
+    };
+    const chk = (v) => {
+      const i = document.createElement('input');
+      i.type = 'checkbox';
+      i.checked = !!v;
+      return i;
+    };
+    const sel = (options, v) => {
+      const s = document.createElement('select');
+      options.forEach(o => {
+        const opt = document.createElement('option');
+        if (typeof o === 'string'){ opt.value = o; opt.textContent = o; }
+        else { opt.value = o.value; opt.textContent = o.label; }
+        if (String(opt.value) === String(v)) opt.selected = true;
+        s.appendChild(opt);
+      });
+      return s;
+    };
+
+    // Per-action editors
+    switch(act.type){
+      case 'move': {
+        act.dx ??= 0; act.dy ??= 0; act.speed ??= 4;
+        const inDx = num(act.dx);  appendRow('dx', inDx);
+        const inDy = num(act.dy);  appendRow('dy', inDy);
+        const inSp = num(act.speed); appendRow('speed', inSp, 'kafli / sekundę (orientacyjnie)');
+        inDx.addEventListener('change', () => act.dx = parseInt(inDx.value,10) || 0);
+        inDy.addEventListener('change', () => act.dy = parseInt(inDy.value,10) || 0);
+        inSp.addEventListener('change', () => act.speed = parseInt(inSp.value,10) || 0);
+        break;
+      }
+      case 'dialog': {
+        act.text ??= '';
+        act.speaker ??= '';
+        const inSp = txt(act.speaker, 'nazwa mówiącego (opcjonalnie)');
+        const inTx = area(act.text, 'Treść dialogu…');
+        appendRow('speaker', inSp);
+        appendRow('text', inTx);
+        inSp.addEventListener('input', () => act.speaker = inSp.value);
+        inTx.addEventListener('input', () => act.text = inTx.value);
+        break;
+      }
+      case 'sleep': {
+        act.ms ??= 500;
+        const inMs = num(act.ms);
+        const sk = chk(!!act.skippable);
+        appendRow('ms', inMs);
+        appendRow('skippable', sk);
+        inMs.addEventListener('change', () => act.ms = parseInt(inMs.value,10) || 0);
+        sk.addEventListener('change', () => act.skippable = !!sk.checked);
+        break;
+      }
+      case 'battle': {
+        // TODO: parametryzacja walki
+        act.encounter ??= '';
+        const inId = txt(act.encounter, 'encounterId //todo');
+        appendRow('encounterId', inId, '//todo: parametryzacja walki');
+        inId.addEventListener('input', () => act.encounter = inId.value);
+        break;
+      }
+      case 'jump': {
+        act.height ??= 1;
+        act.dx ??= 0; act.dy ??= 0;
+        act.duration ??= 300;
+        const inH = numf(act.height);
+        const inDx = num(act.dx);
+        const inDy = num(act.dy);
+        const inDur = num(act.duration);
+        appendRow('height', inH);
+        appendRow('dx', inDx);
+        appendRow('dy', inDy);
+        appendRow('duration', inDur, 'ms');
+        inH.addEventListener('change', () => act.height = Number(inH.value) || 0);
+        inDx.addEventListener('change', () => act.dx = parseInt(inDx.value,10) || 0);
+        inDy.addEventListener('change', () => act.dy = parseInt(inDy.value,10) || 0);
+        inDur.addEventListener('change', () => act.duration = parseInt(inDur.value,10) || 0);
+        break;
+      }
+      case 'inventory': {
+        // TODO: parametryzacja ekwipunku
+        act.op ??= 'add';
+        act.itemId ??= '';
+        act.qty ??= 1;
+        const inOp = sel([{value:'add',label:'add'}, {value:'remove',label:'remove'}], act.op);
+        const inId = txt(act.itemId, 'itemId //todo');
+        const inQty = num(act.qty);
+        appendRow('op', inOp);
+        appendRow('itemId', inId, '//todo: parametryzacja itemów');
+        appendRow('qty', inQty);
+        inOp.addEventListener('change', () => act.op = inOp.value);
+        inId.addEventListener('input', () => act.itemId = inId.value);
+        inQty.addEventListener('change', () => act.qty = parseInt(inQty.value,10) || 0);
+        break;
+      }
+      default: {
+        const p = document.createElement('div');
+        p.textContent = 'Brak edytora dla tej akcji.';
+        container.appendChild(p);
+      }
+    }
+  }
+
+  function addActionToCurrent(action){
+    const s = getOverlayTarget(); if (!s) return;
+    s.props.actions.push(action);
+  }
+  function removeActionAt(idx){
+    const s = getOverlayTarget(); if (!s) return;
+    s.props.actions.splice(idx, 1);
+    rebuildFlow();
+  }
+  function duplicateActionAt(idx){
+    const s = getOverlayTarget(); if (!s) return;
+    const copy = deepClone(s.props.actions[idx]);
+    s.props.actions.splice(idx+1, 0, copy);
+    rebuildFlow();
+  }
+  function moveAction(from, to){
+    const s = getOverlayTarget(); if (!s) return;
+    const arr = s.props.actions;
+    if (from<0 || to<0 || from>=arr.length || to>=arr.length) return;
+    const [row] = arr.splice(from,1);
+    arr.splice(to,0,row);
+    rebuildFlow();
+  }
+  function toggleAllItems(collapsed){
+    $$('.flow__item', flowList).forEach(el => {
+      el.classList.toggle('is-collapsed', !!collapsed);
+    });
+  }
+
+  function makeAction(type){
+    switch(type){
+      case 'move': return { type:'move', dx:0, dy:0, speed:4 };
+      case 'dialog': return { type:'dialog', text:'', speaker:'' };
+      case 'sleep': return { type:'sleep', ms:500, skippable:false };
+      case 'battle': return { type:'battle', encounter:'' /* //todo */ };
+      case 'jump': return { type:'jump', height:1, dx:0, dy:0, duration:300 };
+      case 'inventory': return { type:'inventory', op:'add', itemId:'', qty:1 /* //todo */ };
+      default: return { type:'unknown' };
+    }
+  }
+
+  // ========== Variables ==========
+  async function loadVariables(){
+    try {
+      const res = await fetch('./assets/variables.json', { cache: 'no-store' });
+      if (res.ok){
+        const data = await res.json();
+        state.vars = normalizeVars(data);
+      } else {
+        state.vars = makeDefaultVars();
+      }
+    } catch {
+      state.vars = makeDefaultVars();
+    }
+    state.varsLoaded = true;
+    renderVarsTable();
+  }
+
+  function normalizeVars(data){
+    // Accept either array of objects or object map {id:{...}}
+    let arr = [];
+    if (Array.isArray(data)) arr = data;
+    else if (data && typeof data === 'object'){
+      arr = Object.keys(data).map(k => ({ id: Number(k), ...data[k]}));
+    }
+    // Coerce fields and set defaults
+    return arr.map((v,i) => ({
+      id: v.id ?? (i+1),
+      name: v.name ?? `Variable ${i+1}`,
+      type: v.type ?? 'int',
+      options: Array.isArray(v.options) ? v.options.slice() : [],
+      default: v.default ?? defaultForType(v.type ?? 'int')
+    }));
+  }
+
+  function makeDefaultVars(){
+    const N = 1000;
+    return Array.from({length:N}, (_,i)=> ({
+      id: i+1,
+      name: `Variable ${i+1}`,
+      type: 'int',
+      options: [],
+      default: 0
+    }));
+  }
+
+  function defaultForType(t){
+    switch(t){
+      case 'bool': return false;
+      case 'float': return 0;
+      case 'enum': return '';
+      case 'enum_flags': return [];
+      case 'int':
+      default: return 0;
+    }
+  }
+
+  function renderVarsTable(){
+    varsTableBody.innerHTML = '';
+    if (!state.varsLoaded) return;
+    const q = (state.varsFilter.q || '').toLowerCase();
+    const t = state.varsFilter.type || '';
+
+    const rows = state.vars.filter(v => {
+      const matchesQ = !q || (String(v.id).includes(q) || (v.name||'').toLowerCase().includes(q));
+      const matchesT = !t || v.type===t;
+      return matchesQ && matchesT;
+    });
+
+    rows.forEach(v => varsTableBody.appendChild(buildVarRow(v)));
+  }
+
+  function buildVarRow(v){
+    const tr = document.createElement('tr');
+
+    // id
+    const cId = document.createElement('td'); cId.textContent = String(v.id); tr.appendChild(cId);
+
+    // name
+    const cName = document.createElement('td');
+    cName.className = 'vars__name';
+    const inName = document.createElement('input');
+    inName.type = 'text'; inName.value = v.name || '';
+    inName.addEventListener('input', () => v.name = inName.value);
+    cName.appendChild(inName);
+    tr.appendChild(cName);
+
+    // type
+    const cType = document.createElement('td');
+    cType.className = 'vars__type';
+    const inType = document.createElement('select');
+    ['int','bool','float','enum','enum_flags'].forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      if (v.type === t) opt.selected = true;
+      inType.appendChild(opt);
+    });
+    inType.addEventListener('change', () => {
+      v.type = inType.value;
+      // reset default/options sensibly
+      if (v.type==='enum' || v.type==='enum_flags'){
+        v.options = v.options && v.options.length ? v.options : ['A','B','C'];
+        v.default = v.type==='enum' ? (v.options[0] || '') : [];
+      } else {
+        v.options = [];
+        v.default = defaultForType(v.type);
+      }
+      // rebuild the row UI since cells differ per type
+      tr.replaceWith(buildVarRow(v));
+    });
+    cType.appendChild(inType);
+    tr.appendChild(cType);
+
+    // options / flags
+    const cOpts = document.createElement('td');
+    if (v.type==='enum' || v.type==='enum_flags'){
+      const inOpts = document.createElement('input');
+      inOpts.type = 'text';
+      inOpts.placeholder = 'opcje, rozdzielone przecinkami';
+      inOpts.value = (v.options || []).join(', ');
+      inOpts.addEventListener('change', () => {
+        v.options = inOpts.value.split(',').map(s => s.trim()).filter(Boolean);
+        // keep default valid
+        if (v.type==='enum'){
+          if (!v.options.includes(v.default)) v.default = v.options[0] || '';
+        } else if (v.type==='enum_flags'){
+          v.default = Array.isArray(v.default) ? v.default.filter(x => v.options.includes(x)) : [];
+        }
+        tr.replaceWith(buildVarRow(v));
+      });
+      cOpts.appendChild(inOpts);
+
+      // inline tags for flags
+      if (v.type==='enum_flags'){
+        const tagsWrap = document.createElement('div');
+        tagsWrap.className = 'tags';
+        (v.options || []).forEach(opt => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'tag' + (Array.isArray(v.default) && v.default.includes(opt) ? ' is-on' : '');
+          b.textContent = opt;
+          b.addEventListener('click', () => {
+            const arr = Array.isArray(v.default) ? v.default : [];
+            const on = arr.includes(opt);
+            if (on) v.default = arr.filter(x => x!==opt);
+            else v.default = [...arr, opt];
+            b.classList.toggle('is-on', !on);
+          });
+          tagsWrap.appendChild(b);
+        });
+        cOpts.appendChild(tagsWrap);
+      }
+    } else {
+      cOpts.innerHTML = '<span class="pill">—</span>';
+    }
+    tr.appendChild(cOpts);
+
+    // default
+    const cDef = document.createElement('td');
+    if (v.type==='int'){
+      const inp = document.createElement('input'); inp.type='number'; inp.step='1'; inp.value = String(v.default|0);
+      inp.addEventListener('change', () => v.default = parseInt(inp.value,10) || 0);
+      cDef.appendChild(inp);
+    } else if (v.type==='float'){
+      const inp = document.createElement('input'); inp.type='number'; inp.step='0.01'; inp.value = String(Number(v.default||0));
+      inp.addEventListener('change', () => v.default = Number(inp.value) || 0);
+      cDef.appendChild(inp);
+    } else if (v.type==='bool'){
+      const inp = document.createElement('input'); inp.type='checkbox'; inp.checked = !!v.default;
+      inp.addEventListener('change', () => v.default = !!inp.checked);
+      cDef.appendChild(inp);
+    } else if (v.type==='enum'){
+      const sel = document.createElement('select');
+      (v.options||[]).forEach(o => {
+        const opt = document.createElement('option'); opt.value=o; opt.textContent=o; if (o===v.default) opt.selected = true; sel.appendChild(opt);
+      });
+      sel.addEventListener('change', () => v.default = sel.value);
+      cDef.appendChild(sel);
+    } else if (v.type==='enum_flags'){
+      // summary pill
+      const pill = document.createElement('span'); pill.className='pill';
+      const sync = () => pill.textContent = (Array.isArray(v.default)&&v.default.length) ? v.default.join(' | ') : '(none)';
+      sync();
+      cDef.appendChild(pill);
+    }
+    tr.appendChild(cDef);
+
+    return tr;
+  }
+
+  function appendVariable(){
+    const maxId = state.vars.reduce((m,v)=> Math.max(m, Number(v.id)||0), 0);
+    state.vars.push({
+      id: maxId + 1,
+      name: `Variable ${maxId+1}`,
+      type: 'int',
+      options: [],
+      default: 0
+    });
+  }
+
+  function exportVariablesJSON(){
+    const blob = new Blob([JSON.stringify(state.vars, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'variables.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function importVariablesJSON(e){
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try{
+      const text = await file.text();
+      const data = JSON.parse(text);
+      state.vars = normalizeVars(data);
+      state.varsLoaded = true;
+      renderVarsTable();
+      notify('Zaimportowano variables.json');
+    } catch(err){
+      alert('Niepoprawny JSON variables');
+    } finally {
+      e.target.value = '';
+    }
+  }
+
+  // ========== Misc helpers ==========
+  function snapshotAll(){
+    const snap = { W: state.mapW, H: state.mapH, layers: {}, scripts: deepClone(state.scripts) };
+    for (const L of VISUAL_LAYERS){ snap.layers[L] = deepClone(state.layers[L]); }
+    return snap;
+  }
+  function restoreSnapshot(snap){
+    state.mapW = snap.W; state.mapH = snap.H; mapWInput.value = snap.W; mapHInput.value = snap.H;
+    for (const L of VISUAL_LAYERS){ state.layers[L] = deepClone(snap.layers[L]); }
+    state.scripts = deepClone(snap.scripts);
+    resizeMapCanvas();
+  }
+
+  function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+  function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+  function cloneTile(t){ return t? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null; }
+  function tilesEqual(a,b){ if (!a && !b) return true; if (!a || !b) return false; return a.r===b.r && a.g===b.g && a.b===b.b && a.a===b.a; }
+  function tryParseJSON(s){ if (!s || !s.trim()) return {}; try { return JSON.parse(s); } catch(e){ alert('Props: błędny JSON'); return undefined; } }
+
+  function notify(msg){
+    if (!toast) return alert(msg);
+    toast.textContent = msg;
+    toast.classList.remove('hidden');
+    clearTimeout(notify._t);
+    notify._t = setTimeout(() => toast.classList.add('hidden'), 1800);
+  }
+
+  // Boot overlay variables if overlay already opened (e.g., hot reload)
+  if (state.ovOpen && !state.varsLoaded) loadVariables();
+
+})();
