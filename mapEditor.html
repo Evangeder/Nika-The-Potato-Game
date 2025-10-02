@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PNG Map Editor – ground + ceiling</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161922;
+      --panel-2: #1b2030;
+      --text: #e7eaf1;
+      --muted: #9aa3b2;
+      --accent: #6ea8fe;
+      --accent-2: #a78bfa;
+      --danger: #ff6b6b;
+      --grid: #2a3040;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #0f1115, #0f1115 200px, #0c0f14);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "sidebar toolbar"
+        "sidebar main";
+      gap: 10px;
+      padding: 10px;
+    }
+    header#toolbar {
+      grid-area: toolbar;
+      background: var(--panel);
+      border: 1px solid #222838;
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 8px;
+      align-items: center;
+      box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    }
+    #sidebar {
+      grid-area: sidebar;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border: 1px solid #222838;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    }
+    #sidebar h3 {
+      margin: 0;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border-bottom: 1px solid #21263a;
+      font-size: 13px;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      color: #c9d0e3;
+    }
+    .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #131722;
+      border: 1px solid #242a3e;
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+    .ctrl label { color: var(--muted); font-size: 12px; }
+    select, input[type="text"], input[type="number"], input[type="file"], button {
+      background: #0f1320;
+      color: var(--text);
+      border: 1px solid #26314c;
+      border-radius: 8px;
+      padding: 6px 8px;
+      outline: none;
+    }
+    select:focus, input:focus, button:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
+    button { cursor: pointer; }
+    button.primary { background: linear-gradient(180deg, #2a5fff, #2749e9); border-color: #3c5bff; }
+    button.ghost { background: #111524; }
+    button.danger { background: #2b1212; border-color: #4b1d1d; color: #ffc7c7; }
+
+    #pickerPanel { padding: 10px; display: grid; gap: 8px; }
+    #pickerScroll {
+      overflow-y: auto; height: calc(100vh - 220px);
+      border: 1px dashed #2a2f45; border-radius: 10px;
+      padding: 8px; background: #0f1320;
+    }
+    #pickerCanvas { display: block; image-rendering: pixelated; }
+    #pickedTilePreview { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
+    #pickedTileCanvas { image-rendering: pixelated; border:1px solid #2a2f45; border-radius: 6px; background:#0b0f18; }
+
+    main#main {
+      grid-area: main;
+      background: var(--panel);
+      border: 1px solid #222838;
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 8px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    }
+    #canvasWrap {
+      overflow: auto; background: repeating-conic-gradient(from 45deg, #0d111a 0% 25%, #0a0d14 0% 50%) 50% / 32px 32px;
+      border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px;
+    }
+    #mapCanvas { display: block; image-rendering: pixelated; background: #0b0f18; border: 1px solid #26314c; border-radius: 8px; }
+    #statusBar { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; background: #101525; border: 1px solid #212942; border-radius: 8px; color: #c6ccdd; font-size: 12px; }
+
+    .sep { height: 1px; background: #23293b; margin: 6px 0; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .mini { font-size: 12px; color: #c8d0e5; }
+    .flex { display: flex; gap: 8px; align-items: center; }
+    .grid { display: grid; gap: 8px; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar / Tileset picker -->
+  <aside id="sidebar">
+    <h3>Tileset &amp; Picker</h3>
+    <div id="pickerPanel">
+      <div class="ctrl">
+        <label for="tilesetSelect">Tileset</label>
+        <select id="tilesetSelect" title="Wybierz PNG tilesetu"></select>
+      </div>
+      <div class="ctrl">
+        <label for="tileSize">Tile</label>
+        <input type="number" id="tileSize" min="4" max="128" step="1" value="16" style="width:72px" />
+        <span class="mini">px</span>
+      </div>
+      <div id="pickedTilePreview" class="ctrl">
+        <canvas id="pickedTileCanvas" width="32" height="32"></canvas>
+        <div class="grid" style="gap:2px">
+          <div class="mini">Akt. kafel: <span id="pickedLabel">(0,0)</span></div>
+          <div class="mini">Typ (B): <span id="pickedTypeLabel">ground (0)</span></div>
+          <div class="mini">Flagi (A): <span id="pickedFlagsLabel">0b0000</span></div>
+        </div>
+      </div>
+      <div id="pickerScroll">
+        <canvas id="pickerCanvas"></canvas>
+      </div>
+      <div class="hint">Kliknij w picker, aby wybrać kafel. PPM na mapie – gumka (ustawia RGBA 0,0,0,255).</div>
+    </div>
+  </aside>
+
+  <!-- Toolbar -->
+  <header id="toolbar">
+    <div class="ctrl" style="grid-column: span 3;">
+      <label for="mapName">Mapa</label>
+      <input id="mapName" type="text" placeholder="mapa_01" value="mapa_01" />
+    </div>
+
+    <div class="ctrl" style="grid-column: span 3;">
+      <label>Warstwa</label>
+      <label class="flex"><input type="radio" name="layer" value="ground" checked> Ground</label>
+      <label class="flex"><input type="radio" name="layer" value="ceiling"> Ceiling</label>
+      <label class="flex"><input type="checkbox" id="ghostOther" checked> Podgląd drugiej</label>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 3;">
+      <label for="typeSelect">Typ (B)</label>
+      <select id="typeSelect"></select>
+      <span class="mini">Ceiling zawsze B=0</span>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 3;">
+      <label>Flagi (A)</label>
+      <label class="flex"><input type="checkbox" id="flagFlipX"> FlipX</label>
+      <label class="flex"><input type="checkbox" id="flagFlipY"> FlipY</label>
+      <label class="flex"><input type="checkbox" id="flagRot90"> Rot90°</label>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 4;">
+      <label for="mapW">W</label>
+      <input id="mapW" type="number" value="32" min="1" max="512" style="width:72px" />
+      <label for="mapH">H</label>
+      <input id="mapH" type="number" value="18" min="1" max="512" style="width:72px" />
+      <button id="applySize" class="ghost">Zastosuj wymiary</button>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 3;">
+      <label for="zoomRange">Zoom</label>
+      <input id="zoomRange" type="range" min="1" max="5" step="1" value="2" />
+      <span id="zoomLabel" class="mini">x2</span>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 5;">
+      <button id="saveBtn" class="primary">SAVE (eksport PNG warstw)</button>
+      <button id="clearLayerBtn" class="danger">Wyczyść warstwę</button>
+      <label class="flex"><input type="checkbox" id="showGrid" checked> Siatka</label>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 4;">
+      <label>Wczytaj PNG</label>
+      <input id="loadGround" type="file" accept="image/png" title="Wczytaj ground.png" />
+      <input id="loadCeiling" type="file" accept="image/png" title="Wczytaj ceiling.png" />
+    </div>
+  </header>
+
+  <!-- Main / Canvas -->
+  <main id="main">
+    <div id="canvasWrap">
+      <canvas id="mapCanvas" width="512" height="512"></canvas>
+    </div>
+    <div id="statusBar">
+      <div>Pos: <span id="posLabel">-,-</span> | Tile: <span id="tileLabel">-,-</span></div>
+      <div>Warstwa: <span id="layerLabel">ground</span> | Tileset: <span id="tilesetName">(brak)</span></div>
+      <div>MB1: rysuj | MB2: usuń | <span class="hint">Alt: pipeta</span></div>
+    </div>
+  </main>
+
+  <script>
+    // ===== Konfiguracje =====
+    const TILESETS = [
+      // Dodaj własne ścieżki PNG tutaj:
+      './assets/sprites/tileset.png'
+    ];
+
+    // Mapowanie nazw typów na liczby do kanału Blue (B)
+    const TILE_TYPES = [
+      { name: 'ground', value: 0 },
+      { name: 'wall',   value: 1 },
+      { name: 'ice',    value: 2 },
+      { name: 'ledge',  value: 3 },
+      { name: 'water',  value: 4 },
+      { name: 'lava',   value: 5 },
+      { name: 'decor',  value: 6 }
+    ];
+
+    // Flagi w kanale Alpha (A) – dolny nibble
+    // bit0: flipX, bit1: flipY, bit2: rot90, bit3: (rezerw.)
+    const FLAG = { FLIP_X:1, FLIP_Y:2, ROT_90:4 };
+
+    // Pusta kratka: RGBA 0,0,0,255 (zgodnie ze specyfikacją)
+    const EMPTY_RGBA = [0,0,0,255];
+
+    // ===== Stan aplikacji =====
+    const state = {
+      mapW: 32,
+      mapH: 18,
+      tileSize: 16,
+      zoom: 2,
+      activeLayer: 'ground', // 'ground' | 'ceiling'
+      ghostOther: true,
+      showGrid: true,
+      // aktualny pędzel (wybierany z pickera)
+      brush: { tileX: 0, tileY: 0, typeB: 0, flagsA: 0 },
+      // warstwy z danymi RGBA per piksel
+      layers: {
+        ground: null,
+        ceiling: null
+      },
+      tileset: {
+        url: TILESETS[0],
+        img: null,
+        cols: 0,
+        rows: 0
+      },
+      mouseDown: false,
+      mouseButton: 0
+    };
+
+    // ===== Elementy DOM =====
+    const mapCanvas = document.getElementById('mapCanvas');
+    const mapCtx = mapCanvas.getContext('2d');
+    const pickerCanvas = document.getElementById('pickerCanvas');
+    const pickerCtx = pickerCanvas.getContext('2d');
+    const pickedCanvas = document.getElementById('pickedTileCanvas');
+    const pickedCtx = pickedCanvas.getContext('2d');
+
+    const tilesetSelect = document.getElementById('tilesetSelect');
+    const tileSizeInput = document.getElementById('tileSize');
+    const typeSelect = document.getElementById('typeSelect');
+    const flagFlipX = document.getElementById('flagFlipX');
+    const flagFlipY = document.getElementById('flagFlipY');
+    const flagRot90 = document.getElementById('flagRot90');
+
+    const mapWInput = document.getElementById('mapW');
+    const mapHInput = document.getElementById('mapH');
+    const applySizeBtn = document.getElementById('applySize');
+
+    const zoomRange = document.getElementById('zoomRange');
+    const zoomLabel = document.getElementById('zoomLabel');
+    const ghostOther = document.getElementById('ghostOther');
+    const showGrid = document.getElementById('showGrid');
+
+    const saveBtn = document.getElementById('saveBtn');
+    const clearLayerBtn = document.getElementById('clearLayerBtn');
+    const mapNameInput = document.getElementById('mapName');
+
+    const loadGround = document.getElementById('loadGround');
+    const loadCeiling = document.getElementById('loadCeiling');
+
+    const posLabel = document.getElementById('posLabel');
+    const tileLabel = document.getElementById('tileLabel');
+    const layerLabel = document.getElementById('layerLabel');
+    const tilesetName = document.getElementById('tilesetName');
+    const pickedLabel = document.getElementById('pickedLabel');
+    const pickedTypeLabel = document.getElementById('pickedTypeLabel');
+    const pickedFlagsLabel = document.getElementById('pickedFlagsLabel');
+
+    // Warstwa wyboru
+    document.querySelectorAll('input[name="layer"]').forEach(r => {
+      r.addEventListener('change', () => {
+        state.activeLayer = r.value;
+        layerLabel.textContent = state.activeLayer;
+        // Ceiling: typ B wymuszony na 0 (dekoracyjna warstwa)
+        typeSelect.disabled = state.activeLayer === 'ceiling';
+        render();
+      });
+    });
+
+    ghostOther.addEventListener('change', () => { state.ghostOther = ghostOther.checked; render(); });
+    showGrid.addEventListener('change', () => { state.showGrid = showGrid.checked; render(); });
+
+    // Inicjalizacja selectów
+    function initTilesetSelect() {
+      tilesetSelect.innerHTML = '';
+      TILESETS.forEach((url, i) => {
+        const opt = document.createElement('option');
+        opt.value = url; opt.textContent = url; if (i===0) opt.selected = true;
+        tilesetSelect.appendChild(opt);
+      });
+      tilesetSelect.addEventListener('change', () => loadTileset(tilesetSelect.value));
+    }
+
+    function initTypeSelect() {
+      typeSelect.innerHTML = '';
+      TILE_TYPES.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.value; opt.textContent = `${t.name} (${t.value})`;
+        typeSelect.appendChild(opt);
+      });
+      typeSelect.value = 0;
+      typeSelect.addEventListener('change', () => {
+        state.brush.typeB = parseInt(typeSelect.value,10) || 0;
+        updatePickedLabels();
+      });
+    }
+
+    [flagFlipX, flagFlipY, flagRot90].forEach(chk => chk.addEventListener('change', () => {
+      state.brush.flagsA = (flagFlipX.checked?FLAG.FLIP_X:0) | (flagFlipY.checked?FLAG.FLIP_Y:0) | (flagRot90.checked?FLAG.ROT_90:0);
+      updatePickedLabels();
+      renderPickedPreview();
+    }));
+
+    tileSizeInput.addEventListener('change', () => {
+      const v = clamp(parseInt(tileSizeInput.value,10)||16, 4, 128);
+      state.tileSize = v; tileSizeInput.value = v;
+      computeTilesetGrid();
+      drawPicker();
+      resizeMapCanvas();
+      render();
+      renderPickedPreview();
+    });
+
+    mapWInput.addEventListener('change', syncSizeInputs);
+    mapHInput.addEventListener('change', syncSizeInputs);
+    function syncSizeInputs(){
+      mapWInput.value = clamp(parseInt(mapWInput.value,10)||state.mapW,1, 1024);
+      mapHInput.value = clamp(parseInt(mapHInput.value,10)||state.mapH,1, 1024);
+    }
+
+    applySizeBtn.addEventListener('click', () => {
+      const W = parseInt(mapWInput.value,10);
+      const H = parseInt(mapHInput.value,10);
+      resizeMap(W,H);
+      render();
+    });
+
+    zoomRange.addEventListener('input', () => {
+      state.zoom = parseInt(zoomRange.value,10) || 1;
+      zoomLabel.textContent = `x${state.zoom}`;
+      resizeMapCanvas();
+      render();
+    });
+
+    // ===== Tileset ładowanie i picker =====
+    async function loadTileset(url){
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = url;
+      await img.decode();
+      state.tileset.img = img;
+      state.tileset.url = url;
+      tilesetName.textContent = url.split('/').pop();
+      computeTilesetGrid();
+      drawPicker();
+      renderPickedPreview();
+      render();
+    }
+
+    function computeTilesetGrid(){
+      const { img } = state.tileset; if (!img) return;
+      const ts = state.tileSize;
+      state.tileset.cols = Math.floor(img.width / ts);
+      state.tileset.rows = Math.floor(img.height / ts);
+      // dopasuj rozmiar pickera
+      pickerCanvas.width = state.tileset.cols * ts;
+      pickerCanvas.height = state.tileset.rows * ts;
+    }
+
+    function drawPicker(){
+      const { img } = state.tileset; if (!img) return;
+      const ts = state.tileSize;
+      pickerCtx.clearRect(0,0,pickerCanvas.width,pickerCanvas.height);
+      pickerCtx.imageSmoothingEnabled = false;
+      pickerCtx.drawImage(img, 0,0);
+      // siatka
+      pickerCtx.strokeStyle = '#223';
+      pickerCtx.lineWidth = 1;
+      for (let x=0; x<=pickerCanvas.width; x+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(x+.5,0); pickerCtx.lineTo(x+.5,pickerCanvas.height); pickerCtx.stroke(); }
+      for (let y=0; y<=pickerCanvas.height; y+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(0,y+.5); pickerCtx.lineTo(pickerCanvas.width,y+.5); pickerCtx.stroke(); }
+      // highlight wybranego kafla
+      pickerCtx.strokeStyle = '#6ea8fe'; pickerCtx.lineWidth = 2;
+      pickerCtx.strokeRect(state.brush.tileX*ts+1, state.brush.tileY*ts+1, ts-2, ts-2);
+    }
+
+    pickerCanvas.addEventListener('mousedown', (e) => {
+      const p = pointerInCanvas(e, pickerCanvas);
+      const ts = state.tileSize;
+      const tileX = Math.floor(p.x / ts);
+      const tileY = Math.floor(p.y / ts);
+      state.brush.tileX = clamp(tileX,0,state.tileset.cols-1);
+      state.brush.tileY = clamp(tileY,0,state.tileset.rows-1);
+      drawPicker();
+      renderPickedPreview();
+      updatePickedLabels();
+      e.preventDefault();
+    });
+
+    function renderPickedPreview(){
+      const {img} = state.tileset; if (!img) return;
+      const ts = state.tileSize;
+      pickedCanvas.width = ts*2; pickedCanvas.height = ts*2;
+      pickedCtx.imageSmoothingEnabled = false;
+      pickedCtx.clearRect(0,0,pickedCanvas.width,pickedCanvas.height);
+      // narysuj z transformacjami jak na mapie (dla podglądu pędzla)
+      const sx = state.brush.tileX * ts; const sy = state.brush.tileY * ts;
+      pickedCtx.save();
+      pickedCtx.translate(pickedCanvas.width/2, pickedCanvas.height/2);
+      applyBrushTransform(pickedCtx, ts);
+      pickedCtx.drawImage(img, sx, sy, ts, ts, -ts, -ts, ts*2, ts*2);
+      pickedCtx.restore();
+    }
+
+    function updatePickedLabels(){
+      pickedLabel.textContent = `(${state.brush.tileX},${state.brush.tileY})`;
+      const t = TILE_TYPES.find(t => t.value===state.brush.typeB) || {name:'custom', value: state.brush.typeB};
+      pickedTypeLabel.textContent = `${t.name} (${t.value})`;
+      pickedFlagsLabel.textContent = '0b' + (state.brush.flagsA & 0x0f).toString(2).padStart(4,'0');
+    }
+
+    // ===== Mapa: dane i render =====
+    function allocateLayerArray(W,H){
+      const arr = new Uint8ClampedArray(W*H*4);
+      // wypełnij pustą kratką RGBA 0,0,0,255
+      for (let i=0;i<arr.length;i+=4){ arr[i]=0; arr[i+1]=0; arr[i+2]=0; arr[i+3]=255; }
+      return arr;
+    }
+
+    function resizeMap(W,H){
+      state.mapW = W; state.mapH = H;
+      mapWInput.value = W; mapHInput.value = H;
+      state.layers.ground = allocateLayerArray(W,H);
+      state.layers.ceiling = allocateLayerArray(W,H);
+      resizeMapCanvas();
+    }
+
+    function resizeMapCanvas(){
+      const scale = state.zoom;
+      const cssW = state.mapW * state.tileSize * scale;
+      const cssH = state.mapH * state.tileSize * scale;
+      mapCanvas.width = cssW; mapCanvas.height = cssH;
+      mapCtx.imageSmoothingEnabled = false;
+    }
+
+    function setTile(layer, x, y, r,g,b,a){
+      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
+      const i = 4 * (y*state.mapW + x);
+      const arr = state.layers[layer];
+      arr[i]=r; arr[i+1]=g; arr[i+2]=b; arr[i+3]=a;
+    }
+
+    function getTile(layer, x, y){
+      const i = 4 * (y*state.mapW + x);
+      const arr = state.layers[layer];
+      return { r: arr[i], g: arr[i+1], b: arr[i+2], a: arr[i+3] };
+    }
+
+    function isEmptyTile(px){ return px.r===0 && px.g===0 && px.b===0 && px.a===255; }
+
+    function render(){
+      const ts = state.tileSize; const z = state.zoom;
+      const drawLayer = (layer, alpha=1.0) => {
+        const arr = state.layers[layer]; if (!arr) return;
+        mapCtx.save(); mapCtx.globalAlpha = alpha; mapCtx.scale(z,z);
+        for (let y=0; y<state.mapH; y++){
+          for (let x=0; x<state.mapW; x++){
+            const i = 4 * (y*state.mapW + x);
+            const r = arr[i], g = arr[i+1], b = arr[i+2], a = arr[i+3];
+            if (r===0 && g===0 && b===0 && a===255) continue; // pusty
+            drawTileAt(x,y, r,g, /*b*/b, /*a*/a);
+          }
+        }
+        mapCtx.restore();
+      };
+
+      // wyczyść
+      mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
+
+      // GROUND
+      const groundTop = state.activeLayer==='ground' ? 1.0 : (state.ghostOther?0.7:1.0);
+      const ceilTop = state.activeLayer==='ceiling' ? 1.0 : (state.ghostOther?0.7:1.0);
+      // Zawsze rysujemy ground, potem ceiling nad nim
+      drawLayer('ground', state.activeLayer==='ground'?1.0:(state.ghostOther?0.35:0.15));
+      drawLayer('ceiling', state.activeLayer==='ceiling'?1.0:(state.ghostOther?0.35:0.15));
+
+      // siatka
+      if (state.showGrid){
+        mapCtx.save(); mapCtx.scale(z,z);
+        mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+        for (let x=0; x<=state.mapW*ts; x+=ts){ mapCtx.beginPath(); mapCtx.moveTo(x+.5,0); mapCtx.lineTo(x+.5,state.mapH*ts); mapCtx.stroke(); }
+        for (let y=0; y<=state.mapH*ts; y+=ts){ mapCtx.beginPath(); mapCtx.moveTo(0,y+.5); mapCtx.lineTo(state.mapW*ts,y+.5); mapCtx.stroke(); }
+        mapCtx.restore();
+      }
+    }
+
+    function drawTileAt(tx,ty, r,g, b, a){
+      const { img } = state.tileset; if (!img) return;
+      const ts = state.tileSize;
+      const z = state.zoom;
+      const sx = r * ts; const sy = g * ts;
+      const dx = tx * ts * z; const dy = ty * ts * z;
+      mapCtx.save();
+      mapCtx.translate(dx + (ts*z)/2, dy + (ts*z)/2);
+      applyFlagsTransform(mapCtx, a, ts*z);
+      mapCtx.drawImage(img, sx, sy, ts, ts, -(ts*z)/2, -(ts*z)/2, ts*z, ts*z);
+      mapCtx.restore();
+    }
+
+    function applyBrushTransform(ctx, ts){
+      const f = state.brush.flagsA & 0x0f;
+      if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
+      const sx = (f & FLAG.FLIP_X) ? -1 : 1;
+      const sy = (f & FLAG.FLIP_Y) ? -1 : 1;
+      ctx.scale(sx, sy);
+    }
+
+    function applyFlagsTransform(ctx, a, size){
+      const f = a & 0x0f;
+      if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
+      const sx = (f & FLAG.FLIP_X) ? -1 : 1;
+      const sy = (f & FLAG.FLIP_Y) ? -1 : 1;
+      ctx.scale(sx, sy);
+    }
+
+    // ===== Rysowanie na mapie =====
+    mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    mapCanvas.addEventListener('mousedown', (e) => {
+      const btn = e.button; // 0=LB, 2=RB
+      state.mouseDown = true; state.mouseButton = btn;
+      paintFromEvent(e);
+    });
+    mapCanvas.addEventListener('mousemove', (e) => {
+      updateStatusFromEvent(e);
+      if (state.mouseDown) paintFromEvent(e);
+    });
+    window.addEventListener('mouseup', () => { state.mouseDown = false; });
+
+    function updateStatusFromEvent(e){
+      const p = pointerInCanvas(e, mapCanvas);
+      posLabel.textContent = `${Math.floor(p.x)},${Math.floor(p.y)}`;
+      const ts = state.tileSize*state.zoom;
+      const tx = clamp(Math.floor(p.x / ts), 0, state.mapW-1);
+      const ty = clamp(Math.floor(p.y / ts), 0, state.mapH-1);
+      tileLabel.textContent = `${tx},${ty}`;
+    }
+
+    function paintFromEvent(e){
+      const altPick = e.altKey; // pipeta
+      const tsz = state.tileSize * state.zoom;
+      const p = pointerInCanvas(e, mapCanvas);
+      const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW-1);
+      const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH-1);
+
+      if (altPick){ // Pipeta – pobierz z aktywnej warstwy
+        const px = getTile(state.activeLayer, tx, ty);
+        if (!isEmptyTile(px)){
+          state.brush.tileX = px.r;
+          state.brush.tileY = px.g;
+          state.brush.typeB = px.b;
+          state.brush.flagsA = px.a;
+          typeSelect.value = state.brush.typeB;
+          flagFlipX.checked = !!(px.a & FLAG.FLIP_X);
+          flagFlipY.checked = !!(px.a & FLAG.FLIP_Y);
+          flagRot90.checked = !!(px.a & FLAG.ROT_90);
+          drawPicker();
+          renderPickedPreview();
+          updatePickedLabels();
+        }
+        return;
+      }
+
+      if (state.mouseButton === 2){ // PPM – gumka
+        setTile(state.activeLayer, tx, ty, ...EMPTY_RGBA);
+      } else { // LPM – rysuj
+        const r = state.brush.tileX & 255;
+        const g = state.brush.tileY & 255;
+        const b = state.activeLayer==='ceiling' ? 0 : (state.brush.typeB & 255);
+        const a = state.brush.flagsA & 255; // Ceiling też może mieć rot/flip dla dekoru
+        setTile(state.activeLayer, tx, ty, r,g,b,a);
+      }
+      render();
+    }
+
+    function pointerInCanvas(evt, canvas){
+      const rect = canvas.getBoundingClientRect();
+      return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) };
+    }
+
+    // ===== SAVE / LOAD =====
+    function savePNGs(){
+      const name = (mapNameInput.value||'mapa').replace(/\s+/g,'_');
+      saveLayerPNG('ground', `${name}_ground.png`);
+      saveLayerPNG('ceiling', `${name}_ceiling.png`);
+    }
+
+    function saveLayerPNG(layer, filename){
+      const off = document.createElement('canvas');
+      off.width = state.mapW; off.height = state.mapH;
+      const ictx = off.getContext('2d');
+      const img = ictx.createImageData(state.mapW, state.mapH);
+      img.data.set(state.layers[layer]);
+      ictx.putImageData(img, 0, 0);
+      off.toBlob((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+      }, 'image/png');
+    }
+
+    async function loadLayerFromFile(file, layer){
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const img = new Image(); img.src = url; await img.decode();
+      const off = document.createElement('canvas');
+      off.width = img.width; off.height = img.height;
+      const ictx = off.getContext('2d');
+      ictx.drawImage(img,0,0);
+      const data = ictx.getImageData(0,0,off.width,off.height).data;
+      // dopasuj mapę do rozmiaru wczytanego PNG (1 piksel = 1 tile)
+      resizeMap(off.width, off.height);
+      state.layers[layer].set(data);
+      URL.revokeObjectURL(url);
+      render();
+    }
+
+    saveBtn.addEventListener('click', savePNGs);
+    clearLayerBtn.addEventListener('click', () => {
+      const arr = state.layers[state.activeLayer];
+      for (let i=0;i<arr.length;i+=4){ arr[i]=0; arr[i+1]=0; arr[i+2]=0; arr[i+3]=255; }
+      render();
+    });
+    loadGround.addEventListener('change', (e)=> loadLayerFromFile(e.target.files[0], 'ground'));
+    loadCeiling.addEventListener('change', (e)=> loadLayerFromFile(e.target.files[0], 'ceiling'));
+
+    // ===== Start =====
+    function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+
+    function boot(){
+      initTilesetSelect();
+      initTypeSelect();
+      resizeMap(state.mapW, state.mapH);
+      resizeMapCanvas();
+      updatePickedLabels();
+      loadTileset(state.tileset.url);
+      zoomLabel.textContent = `x${state.zoom}`;
+    }
+
+    boot();
+  </script>
+</body>
+</html>
