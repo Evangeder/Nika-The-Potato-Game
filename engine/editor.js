@@ -697,6 +697,27 @@
     else state.scripts.push({ kind, x, y, props: deepClone(props||{}) });
   }
 
+  // ==========/ Pointer helpers ==========
+  function pointerInCanvas(evt, canvas){
+    const rect = canvas.getBoundingClientRect();
+    // współrzędne w pikselach canvasu (po uwzględnieniu scrolla/pozycji w dokumencie)
+    return {
+      x: (evt.clientX - rect.left),
+      y: (evt.clientY - rect.top)
+    };
+  }
+
+  function tileFromEvent(evt){
+    // pozycja kursora względem canvasu
+    const p = pointerInCanvas(evt, mapCanvas);
+    // rozmiar widocznego tile’a = tileSize * zoom (canvas ma width/height już przeskalowane)
+    const tsz = state.tileSize * state.zoom;
+    const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW - 1);
+    const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH - 1);
+    return { tx, ty };
+  }
+
+
   // ==========/ Shapes ==========
   function updatePreviewCells(){
     const {startX,startY,endX,endY} = state.shapeDrag;
