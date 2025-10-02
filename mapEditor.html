@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Map Editor – JSON (Ground/Details/Details2/Ceiling/Ceiling2/Scripts)</title>
+  <title>Map Editor – JSON + Undo/Redo + Shapes</title>
   <style>
     :root {
       --bg: #0f1115;
@@ -23,7 +23,7 @@
       color: var(--text);
       font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
       display: grid;
-      grid-template-columns: 280px 1fr;
+      grid-template-columns: 300px 1fr;
       grid-template-rows: auto 1fr;
       grid-template-areas:
         "sidebar toolbar"
@@ -87,9 +87,10 @@
     button.primary { background: linear-gradient(180deg, #2a5fff, #2749e9); border-color: #3c5bff; }
     button.ghost { background: #111524; }
     button.danger { background: #2b1212; border-color: #4b1d1d; color: #ffc7c7; }
+    button:disabled { opacity: 0.5; cursor: default; }
 
     #pickerPanel { padding: 10px; display: grid; gap: 8px; }
-    #pickerScroll { overflow-y: auto; height: calc(100vh - 260px); border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; background: #0f1320; }
+    #pickerScroll { overflow-y: auto; height: calc(100vh - 300px); border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; background: #0f1320; }
     #pickerCanvas { display: block; image-rendering: pixelated; }
     #pickedTilePreview { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
     #pickedTileCanvas { image-rendering: pixelated; border:1px solid #2a2f45; border-radius: 6px; background:#0b0f18; }
@@ -142,7 +143,7 @@
       <input id="mapName" type="text" placeholder="mapa_01" value="mapa_01" />
     </div>
 
-    <div class="ctrl" style="grid-column: span 5;">
+    <div class="ctrl" style="grid-column: span 4;">
       <label>Warstwa</label>
       <label class="flex"><input type="radio" name="layer" value="ground" checked> Ground</label>
       <label class="flex"><input type="radio" name="layer" value="details"> Details</label>
@@ -190,6 +191,20 @@
       <button id="clearLayerBtn" class="danger">Wyczyść warstwę</button>
     </div>
 
+    <div class="ctrl" style="grid-column: span 4;">
+      <label>Narzędzie</label>
+      <label class="flex"><input type="radio" name="tool" value="pencil" checked> Pencil</label>
+      <label class="flex"><input type="radio" name="tool" value="line"> Line</label>
+      <label class="flex"><input type="radio" name="tool" value="rect"> Rect</label>
+      <label class="flex"><input type="radio" name="tool" value="circle"> Circle</label>
+      <label class="flex" id="fillWrap"><input type="checkbox" id="fillShape" checked> Fill</label>
+    </div>
+
+    <div class="ctrl" style="grid-column: span 2;">
+      <button id="undoBtn" class="ghost" disabled>Undo (Ctrl+Z)</button>
+      <button id="redoBtn" class="ghost" disabled>Redo (Ctrl+Y / Shift+Ctrl+Z)</button>
+    </div>
+
     <!-- Script tools (visible only on Scripts layer) -->
     <div id="scriptTools" class="ctrl" style="grid-column: 1 / -1; display:none;">
       <strong>Scripts:</strong>
@@ -220,9 +235,7 @@
 
   <script>
     // ===== Konfiguracje =====
-    const TILESETS = [
-      './assets/sprites/tileset.png'
-    ];
+    const TILESETS = [ './assets/sprites/tileset.png' ];
 
     const TILE_TYPES = [
       { name: 'ground', value: 0 },
@@ -250,14 +263,17 @@
       activeLayer: 'ground',
       ghostOther: true,
       showGrid: true,
+      tool: 'pencil',
+      fillShape: true,
       brush: { tileX: 0, tileY: 0, typeB: 0, flagsA: 0 },
       scriptBrush: { kind: 'teleport', props: {} },
-      layers: {
-        ground: null, details: null, details2: null, ceiling: null, ceiling2: null
-      },
+      layers: { ground: null, details: null, details2: null, ceiling: null, ceiling2: null },
       scripts: [], // {kind, x, y, props}
       tileset: { url: TILESETS[0], img: null, cols: 0, rows: 0 },
-      mouseDown: false, mouseButton: 0
+      mouseDown: false, mouseButton: 0,
+      shapeDrag: { active:false, startX:0, startY:0, endX:0, endY:0 },
+      preview: { active:false, cells:[], erase:false },
+      history: { undo: [], redo: [], current: null, changeIndex: null, limit: 25 }
     };
 
     // ===== DOM =====
@@ -301,7 +317,13 @@
     const scriptKind = document.getElementById('scriptKind');
     const scriptProps = document.getElementById('scriptProps');
 
-    // Warstwa wyboru
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+
+    const fillWrap = document.getElementById('fillWrap');
+    const fillShape = document.getElementById('fillShape');
+
+    // ===== Warstwa wyboru =====
     document.querySelectorAll('input[name="layer"]').forEach(r => {
       r.addEventListener('change', () => {
         state.activeLayer = r.value;
@@ -311,11 +333,28 @@
         flagFlipX.disabled = state.activeLayer==='scripts';
         flagFlipY.disabled = state.activeLayer==='scripts';
         flagRot90.disabled = state.activeLayer==='scripts';
-        // script tools toggle
-        scriptTools.style.display = state.activeLayer==='scripts' ? '' : 'none';
+        // Tool restrictions on Scripts
+        const toolInputs = [...document.querySelectorAll('input[name="tool"]')];
+        const scriptsMode = state.activeLayer==='scripts';
+        toolInputs.forEach(inp => inp.disabled = scriptsMode && inp.value!=='pencil');
+        if (scriptsMode) { state.tool='pencil'; toolInputs.find(i=>i.value==='pencil').checked=true; }
+        fillWrap.style.display = (state.tool==='rect' || state.tool==='circle') && !scriptsMode ? '' : 'none';
+        scriptTools.style.display = scriptsMode ? '' : 'none';
+        state.preview.active=false;
         render();
       });
     });
+
+    // ===== Tool select =====
+    document.querySelectorAll('input[name="tool"]').forEach(t => {
+      t.addEventListener('change', () => {
+        state.tool = t.value;
+        fillWrap.style.display = (state.tool==='rect' || state.tool==='circle') && state.activeLayer!=='scripts' ? '' : 'none';
+        state.preview.active=false;
+        render();
+      });
+    });
+    fillShape.addEventListener('change', () => { state.fillShape = fillShape.checked; render(); });
 
     ghostOther.addEventListener('change', () => { state.ghostOther = ghostOther.checked; render(); });
     showGrid.addEventListener('change', () => { state.showGrid = showGrid.checked; render(); });
@@ -370,7 +409,10 @@
     applySizeBtn.addEventListener('click', () => {
       const W = parseInt(mapWInput.value,10);
       const H = parseInt(mapHInput.value,10);
+      beginAction({ kind:'resize', layer:'*' });
+      const old = snapshotAll();
       resizeMap(W,H,true);
+      endAction({ kind:'resize', layer:'*', snapshotBefore: old, snapshotAfter: snapshotAll() });
       render();
     });
 
@@ -414,11 +456,9 @@
       pickerCtx.clearRect(0,0,pickerCanvas.width,pickerCanvas.height);
       pickerCtx.imageSmoothingEnabled = false;
       pickerCtx.drawImage(img, 0,0);
-      // siatka
       pickerCtx.strokeStyle = '#223'; pickerCtx.lineWidth = 1;
       for (let x=0; x<=pickerCanvas.width; x+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(x+.5,0); pickerCtx.lineTo(x+.5,pickerCanvas.height); pickerCtx.stroke(); }
       for (let y=0; y<=pickerCanvas.height; y+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(0,y+.5); pickerCtx.lineTo(pickerCanvas.width,y+.5); pickerCtx.stroke(); }
-      // highlight
       pickerCtx.strokeStyle = '#6ea8fe'; pickerCtx.lineWidth = 2;
       pickerCtx.strokeRect(state.brush.tileX*ts+1, state.brush.tileY*ts+1, ts-2, ts-2);
     }
@@ -470,9 +510,7 @@
       const oldScripts = preserve ? [...state.scripts] : null;
       state.mapW = W; state.mapH = H;
       mapWInput.value = W; mapHInput.value = H;
-      // realloc warstw
       for (const L of VISUAL_LAYERS){ state.layers[L] = allocateLayerGrid(W,H); }
-      // przenieś zawartość
       if (preserve && oldLayers){
         const minW = Math.min(oldW, W), minH = Math.min(oldH, H);
         for (const L of VISUAL_LAYERS){
@@ -527,8 +565,8 @@
         drawLayer(L, alpha);
       }
 
-      // Scripts overlay (ikony)
       drawScriptsOverlay();
+      drawPreview();
 
       if (state.showGrid){
         mapCtx.save(); mapCtx.scale(z,z);
@@ -571,6 +609,30 @@
       mapCtx.restore();
     }
 
+    function drawPreview(){
+      if (!state.preview.active) return;
+      const { img } = state.tileset; if (!img) return;
+      const ts = state.tileSize; const z = state.zoom;
+      mapCtx.save(); mapCtx.globalAlpha = state.preview.erase ? 0.35 : 0.5;
+      mapCtx.scale(z,z);
+      for (const {x,y} of state.preview.cells){
+        if (x<0||y<0||x>=state.mapW||y>=state.mapH) continue;
+        if (state.preview.erase){
+          // podświetl kasowanie
+          mapCtx.fillStyle = 'rgba(255,60,60,0.35)';
+          mapCtx.fillRect(x*ts, y*ts, ts, ts);
+        } else {
+          const sx = state.brush.tileX * ts; const sy = state.brush.tileY * ts;
+          mapCtx.save();
+          mapCtx.translate(x*ts + ts/2, y*ts + ts/2);
+          applyBrushTransform(mapCtx);
+          mapCtx.drawImage(img, sx, sy, ts, ts, -ts/2, -ts/2, ts, ts);
+          mapCtx.restore();
+        }
+      }
+      mapCtx.restore();
+    }
+
     function applyBrushTransform(ctx){
       const f = state.brush.flagsA & 0x0f;
       if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
@@ -587,88 +649,260 @@
       ctx.scale(sx, sy);
     }
 
-    // ===== Interakcja mapy =====
-    mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
-
-    mapCanvas.addEventListener('mousedown', (e) => {
-      state.mouseDown = true; state.mouseButton = e.button; paintFromEvent(e);
-    });
-    mapCanvas.addEventListener('mousemove', (e) => {
-      updateStatusFromEvent(e);
-      if (state.mouseDown) paintFromEvent(e);
-    });
-    window.addEventListener('mouseup', () => { state.mouseDown = false; });
-
-    function updateStatusFromEvent(e){
-      const p = pointerInCanvas(e, mapCanvas);
-      posLabel.textContent = `${Math.floor(p.x)},${Math.floor(p.y)}`;
-      const tsz = state.tileSize*state.zoom;
-      const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW-1);
-      const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH-1);
-      tileLabel.textContent = `${tx},${ty}`;
+    // ===== Historia (Undo/Redo) =====
+    function beginAction(meta){
+      state.history.current = { ...meta, changes: [], scriptChanges: [] };
+      state.history.changeIndex = new Map();
+      // podgląd off
+      state.preview.active = false;
     }
 
-    function paintFromEvent(e){
-      const altPick = e.altKey; // pipeta
-      const tsz = state.tileSize * state.zoom;
-      const p = pointerInCanvas(e, mapCanvas);
-      const tx = clamp(Math.floor(p.x / tsz), 0, state.mapW-1);
-      const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH-1);
-
-      if (state.activeLayer==='scripts'){
-        if (altPick){ // pipeta obiektu
-          const s = findScriptAt(tx,ty); if (s){
-            scriptKind.value = s.kind; state.scriptBrush.kind = s.kind;
-            scriptProps.value = JSON.stringify(s.props||{}); state.scriptBrush.props = s.props||{};
-          }
-          return;
-        }
-        if (state.mouseButton===2){ // usuń obiekt
-          removeScriptAt(tx,ty); render(); return;
-        } else {
-          // dodaj/edytuj obiekt
-          const props = tryParseJSON(scriptProps.value); if (props!==undefined) state.scriptBrush.props = props;
-          upsertScriptAt(tx,ty, state.scriptBrush.kind, state.scriptBrush.props);
-          render(); return;
-        }
+    function recordChange(layer, x, y, before, after){
+      const key = layer+':'+x+','+y;
+      if (!state.history.changeIndex.has(key)){
+        const idx = state.history.current.changes.length;
+        state.history.changeIndex.set(key, idx);
+        state.history.current.changes.push({ layer, x, y, before: deepClone(before), after: deepClone(after) });
+      } else {
+        const idx = state.history.changeIndex.get(key);
+        state.history.current.changes[idx].after = deepClone(after);
       }
+    }
 
-      if (altPick){ // pipeta kafla z aktywnej warstwy
-        const t = getTile(state.activeLayer, tx, ty);
-        if (t){
-          state.brush.tileX = t.r; state.brush.tileY = t.g; state.brush.typeB = t.b; state.brush.flagsA = t.a;
-          typeSelect.value = String(state.brush.typeB);
-          flagFlipX.checked = !!(t.a & FLAG.FLIP_X);
-          flagFlipY.checked = !!(t.a & FLAG.FLIP_Y);
-          flagRot90.checked = !!(t.a & FLAG.ROT_90);
-          drawPicker(); renderPickedPreview(); updatePickedLabels();
+    function endAction(meta){
+      const action = state.history.current; if (!action) return;
+      Object.assign(action, meta||{});
+      if (action.changes.length===0 && action.scriptChanges.length===0 && !action.snapshotBefore){ state.history.current=null; return; }
+      state.history.undo.push(action);
+      if (state.history.undo.length>state.history.limit) state.history.undo.shift();
+      state.history.redo = [];
+      state.history.current = null; state.history.changeIndex=null;
+      updateUndoRedoButtons();
+    }
+
+    function applyAction(action, dir){ // dir: 1 redo, -1 undo
+      if (action.snapshotBefore){
+        // resize snapshot
+        const snap = dir===-1 ? action.snapshotBefore : action.snapshotAfter;
+        restoreSnapshot(snap);
+      } else {
+        const list = action.changes;
+        for (const ch of list){
+          const src = dir===-1 ? ch.before : ch.after;
+          setTile(ch.layer, ch.x, ch.y, cloneTile(src));
         }
-        return;
-      }
-
-      if (state.mouseButton === 2){ // PPM – gumka
-        setTile(state.activeLayer, tx, ty, null);
-      } else { // LPM – rysuj
-        const r = state.brush.tileX & 255;
-        const g = state.brush.tileY & 255;
-        const b = isCeilingLayer(state.activeLayer) ? 0 : (state.brush.typeB & 255);
-        const a = state.brush.flagsA & 255;
-        setTile(state.activeLayer, tx, ty, {r,g,b,a});
+        for (const sc of action.scriptChanges){
+          const src = dir===-1 ? sc.before : sc.after;
+          if (!src) removeScriptAt(sc.x, sc.y, false);
+          else upsertScriptAt(sc.x, sc.y, src.kind, src.props, false);
+        }
       }
       render();
     }
 
+    function undo(){
+      const a = state.history.undo.pop(); if (!a) return;
+      state.history.redo.push(a);
+      applyAction(a, -1);
+      updateUndoRedoButtons();
+    }
+    function redo(){
+      const a = state.history.redo.pop(); if (!a) return;
+      state.history.undo.push(a);
+      applyAction(a, 1);
+      updateUndoRedoButtons();
+    }
+
+    function updateUndoRedoButtons(){
+      undoBtn.disabled = state.history.undo.length===0;
+      redoBtn.disabled = state.history.redo.length===0;
+    }
+
+    undoBtn.addEventListener('click', undo);
+    redoBtn.addEventListener('click', redo);
+
+    window.addEventListener('keydown', (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      if (e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); }
+      else if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); }
+    });
+
+    // ===== Interakcja mapy =====
+    mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    mapCanvas.addEventListener('mousedown', (e) => {
+      const btn = e.button; // 0=LB,2=RB
+      state.mouseDown = true; state.mouseButton = btn;
+      const altPick = e.altKey;
+      const {tx,ty} = tileFromEvent(e);
+
+      if (state.activeLayer==='scripts'){
+        if (altPick){ const s = findScriptAt(tx,ty); if (s){ scriptKind.value = s.kind; state.scriptBrush.kind=s.kind; scriptProps.value = JSON.stringify(s.props||{}); state.scriptBrush.props = s.props||{}; } return; }
+        beginAction({ kind: btn===2?'script-remove':'script-upsert', layer:'scripts' });
+        if (btn===2){ recordScriptChange(tx,ty, findScriptAt(tx,ty), null); removeScriptAt(tx,ty,false); }
+        else { const props = tryParseJSON(scriptProps.value); if (props!==undefined) state.scriptBrush.props=props; recordScriptChange(tx,ty, findScriptAt(tx,ty), {kind:state.scriptBrush.kind, x:tx, y:ty, props:deepClone(state.scriptBrush.props)}); upsertScriptAt(tx,ty,state.scriptBrush.kind,state.scriptBrush.props,false); }
+        endAction(); render(); return;
+      }
+
+      // Visual layers
+      if (altPick){ const t = getTile(state.activeLayer, tx, ty); if (t){ setBrushFromTile(t); } return; }
+
+      if (state.tool==='pencil'){
+        beginAction({ kind: btn===2?'erase':'paint', layer: state.activeLayer });
+        paintOne(tx,ty, btn===2);
+      } else {
+        state.shapeDrag.active = true; state.shapeDrag.startX = tx; state.shapeDrag.startY = ty; state.shapeDrag.endX = tx; state.shapeDrag.endY = ty;
+        updatePreviewCells();
+      }
+    });
+
+    mapCanvas.addEventListener('mousemove', (e) => {
+      updateStatusFromEvent(e);
+      if (!state.mouseDown) return;
+      const {tx,ty} = tileFromEvent(e);
+
+      if (state.activeLayer==='scripts') return; // brak drag na scripts
+
+      if (state.tool==='pencil'){
+        paintOne(tx,ty, state.mouseButton===2);
+      } else if (state.shapeDrag.active){
+        state.shapeDrag.endX = tx; state.shapeDrag.endY = ty; updatePreviewCells();
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!state.mouseDown) return; state.mouseDown = false;
+
+      if (state.activeLayer!=='scripts' && state.tool!=='pencil' && state.shapeDrag.active){
+        const cells = state.preview.cells; const erase = state.preview.erase; state.preview.active=false; state.shapeDrag.active=false;
+        beginAction({ kind: erase?'shape-erase':'shape-paint', layer: state.activeLayer, tool: state.tool, filled: state.fillShape });
+        for (const {x,y} of cells){ applyPaintAt(state.activeLayer, x, y, erase ? null : makeCurrentTile()); }
+        endAction(); render();
+      } else if (state.history.current){
+        endAction(); render();
+      }
+    });
+
+    function updateStatusFromEvent(e){
+      const p = pointerInCanvas(e, mapCanvas);
+      posLabel.textContent = `${Math.floor(p.x)},${Math.floor(p.y)}`;
+      const {tx,ty} = tileFromEvent(e);
+      tileLabel.textContent = `${tx},${ty}`;
+    }
+
+    function paintOne(tx,ty, erase){
+      applyPaintAt(state.activeLayer, tx, ty, erase ? null : makeCurrentTile());
+      render(); // realtime
+    }
+
+    function applyPaintAt(layer, x, y, newTile){
+      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
+      const before = getTile(layer, x, y);
+      const equal = tilesEqual(before, newTile);
+      if (equal) return;
+      setTile(layer, x, y, cloneTile(newTile));
+      if (!state.history.current) beginAction({ kind:'paint', layer });
+      recordChange(layer, x, y, before, newTile);
+    }
+
+    function makeCurrentTile(){
+      const r = state.brush.tileX & 255; const g = state.brush.tileY & 255;
+      const b = isCeilingLayer(state.activeLayer) ? 0 : (state.brush.typeB & 255);
+      const a = state.brush.flagsA & 255;
+      return { r,g,b,a };
+    }
+
+    function setBrushFromTile(t){
+      state.brush.tileX=t.r; state.brush.tileY=t.g; state.brush.typeB=t.b; state.brush.flagsA=t.a;
+      typeSelect.value = String(state.brush.typeB);
+      flagFlipX.checked = !!(t.a & FLAG.FLIP_X);
+      flagFlipY.checked = !!(t.a & FLAG.FLIP_Y);
+      flagRot90.checked = !!(t.a & FLAG.ROT_90);
+      drawPicker(); renderPickedPreview(); updatePickedLabels();
+    }
+
+    function recordScriptChange(x,y,before,after){
+      const entry = { x,y, before: before? deepClone(before): null, after: after? deepClone(after): null };
+      state.history.current.scriptChanges.push(entry);
+    }
+
     function findScriptAt(x,y){ return state.scripts.find(s => s.x===x && s.y===y); }
-    function removeScriptAt(x,y){ state.scripts = state.scripts.filter(s => !(s.x===x && s.y===y)); }
-    function upsertScriptAt(x,y, kind, props){
+    function removeScriptAt(x,y, doRecord=true){ state.scripts = state.scripts.filter(s => !(s.x===x && s.y===y)); }
+    function upsertScriptAt(x,y, kind, props, doRecord=true){
       const ex = findScriptAt(x,y);
       if (ex){ ex.kind = kind; ex.props = deepClone(props||{}); }
       else state.scripts.push({ kind, x, y, props: deepClone(props||{}) });
     }
 
+    function tileFromEvent(evt){
+      const rect = mapCanvas.getBoundingClientRect();
+      const x = (evt.clientX - rect.left); const y = (evt.clientY - rect.top);
+      const tsz = state.tileSize * state.zoom;
+      return { tx: clamp(Math.floor(x / tsz), 0, state.mapW-1), ty: clamp(Math.floor(y / tsz), 0, state.mapH-1) };
+    }
+
     function pointerInCanvas(evt, canvas){
       const rect = canvas.getBoundingClientRect();
       return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) };
+    }
+
+    // ===== Shape helpers & preview =====
+    function updatePreviewCells(){
+      const {startX,startY,endX,endY} = state.shapeDrag;
+      let cells = [];
+      if (state.tool==='line') cells = lineCells(startX,startY,endX,endY);
+      else if (state.tool==='rect') cells = rectCells(startX,startY,endX,endY, state.fillShape);
+      else if (state.tool==='circle') cells = ellipseCellsBBox(startX,startY,endX,endY, state.fillShape);
+      state.preview.active = true; state.preview.cells = cells; state.preview.erase = (state.mouseButton===2);
+      render();
+    }
+
+    function rectCells(x0,y0,x1,y1, filled){
+      const minx = Math.min(x0,x1), maxx=Math.max(x0,x1);
+      const miny = Math.min(y0,y1), maxy=Math.max(y0,y1);
+      const out=[];
+      if (filled){
+        for (let y=miny;y<=maxy;y++) for (let x=minx;x<=maxx;x++) out.push({x,y});
+      } else {
+        for (let x=minx;x<=maxx;x++){ out.push({x,y:miny}); out.push({x,y:maxy}); }
+        for (let y=miny+1;y<=maxy-1;y++){ out.push({x:minx,y}); out.push({x:maxx,y}); }
+      }
+      return clampCells(out);
+    }
+
+    function lineCells(x0,y0,x1,y1){
+      const out=[]; let dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
+      let sx = x0<x1?1:-1, sy = y0<y1?1:-1; let err = dx-dy; let x=x0,y=y0;
+      while(true){ out.push({x,y}); if (x===x1 && y===y1) break; const e2 = 2*err; if (e2> -dy){ err-=dy; x+=sx; } if (e2 < dx){ err+=dx; y+=sy; } }
+      return clampCells(out);
+    }
+
+    function ellipseCellsBBox(x0,y0,x1,y1, filled){
+      const minx=Math.min(x0,x1), maxx=Math.max(x0,x1);
+      const miny=Math.min(y0,y1), maxy=Math.max(y0,y1);
+      const cx = (minx+maxx)/2, cy=(miny+maxy)/2;
+      const rx = Math.max(0,(maxx-minx)/2), ry=Math.max(0,(maxy-miny)/2);
+      const out=[];
+      if (rx===0 && ry===0) return [{x:Math.round(cx), y:Math.round(cy)}];
+      const th = 1/Math.max(1, Math.max(rx,ry)); // grubość konturu dla outline
+      for (let y=miny; y<=maxy; y++){
+        for (let x=minx; x<=maxx; x++){
+          const nx = (x+0.5 - cx) / (rx || 1);
+          const ny = (y+0.5 - cy) / (ry || 1);
+          const d = nx*nx + ny*ny;
+          if (filled){ if (d <= 1.0) out.push({x,y}); }
+          else { if (d <= 1.0 && d >= (1.0 - th*2)) out.push({x,y}); }
+        }
+      }
+      return clampCells(out);
+    }
+
+    function clampCells(cells){
+      const out=[]; for (const c of cells){ if (c.x>=0 && c.y>=0 && c.x<state.mapW && c.y<state.mapH) out.push(c); }
+      // dedupe
+      const seen=new Set(); const unique=[]; for(const c of out){ const k=c.x+','+c.y; if(!seen.has(k)){ seen.add(k); unique.push(c);} }
+      return unique;
     }
 
     // ===== SAVE / LOAD JSON =====
@@ -694,14 +928,12 @@
       if (!file) return;
       const text = await file.text();
       let obj; try { obj = JSON.parse(text); } catch(e){ alert('Błędny JSON'); return; }
-      // minimalna walidacja
       const W = obj.width|0, H = obj.height|0; if (!W||!H){ alert('Brak width/height w JSON'); return; }
       state.tileSize = obj.tileSize|0 || state.tileSize; tileSizeInput.value = state.tileSize;
       if (obj.tileset){ await loadTileset(obj.tileset); tilesetSelect.value = obj.tileset; }
       resizeMap(W,H,false);
       for (const L of VISUAL_LAYERS){
         if (obj.layers && obj.layers[L]){
-          // skopiuj w granicach mapy
           for (let y=0;y<Math.min(H, obj.layers[L].length);y++){
             for (let x=0;x<Math.min(W, obj.layers[L][y].length);x++){
               const t = obj.layers[L][y][x];
@@ -712,22 +944,41 @@
       }
       state.scripts = Array.isArray(obj.scripts) ? obj.scripts.map(s=>({kind:String(s.kind||'note'), x:s.x|0, y:s.y|0, props: s.props||{}})) : [];
       mapNameInput.value = (obj.name||'mapa');
+      // clear history after load
+      state.history.undo = []; state.history.redo = []; state.history.current=null; updateUndoRedoButtons();
       render();
     }
 
     saveJsonBtn.addEventListener('click', saveJSON);
     loadJsonInput.addEventListener('change', (e)=> loadJSON(e.target.files[0]));
     clearLayerBtn.addEventListener('click', () => {
-      if (state.activeLayer==='scripts') { state.scripts = []; }
-      else {
-        const L = state.activeLayer; for (let y=0;y<state.mapH;y++) for (let x=0;x<state.mapW;x++) state.layers[L][y][x]=null;
-      }
-      render();
+      beginAction({ kind:'clear', layer: state.activeLayer });
+      if (state.activeLayer==='scripts') { const before = deepClone(state.scripts); state.scripts = []; state.history.current.scriptChanges.push({x:-1,y:-1,before:before, after: []}); }
+      else { const L = state.activeLayer; for (let y=0;y<state.mapH;y++) for (let x=0;x<state.mapW;x++){ const before=getTile(L,x,y); if(before){ setTile(L,x,y,null); recordChange(L,x,y,before,null);} } }
+      endAction(); render();
     });
+
+    // ===== Snapshot helpers (for resize undo) =====
+    function snapshotAll(){
+      const snap = { W: state.mapW, H: state.mapH, layers: {}, scripts: deepClone(state.scripts) };
+      for (const L of VISUAL_LAYERS){ snap.layers[L] = deepClone(state.layers[L]); }
+      return snap;
+    }
+    function restoreSnapshot(snap){
+      state.mapW = snap.W; state.mapH = snap.H; mapWInput.value = snap.W; mapHInput.value = snap.H;
+      for (const L of VISUAL_LAYERS){ state.layers[L] = deepClone(snap.layers[L]); }
+      state.scripts = deepClone(snap.scripts);
+      resizeMapCanvas();
+    }
 
     // ===== Utils =====
     function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
     function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+    function cloneTile(t){ return t? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null; }
+    function tilesEqual(a,b){
+      if (!a && !b) return true; if (!a || !b) return false;
+      return a.r===b.r && a.g===b.g && a.b===b.b && a.a===b.a;
+    }
     function tryParseJSON(s){ if (!s || !s.trim()) return {}; try { return JSON.parse(s); } catch(e){ alert('Props: błędny JSON'); return undefined; } }
 
     // ===== Start =====
@@ -740,6 +991,7 @@
       loadTileset(state.tileset.url);
       zoomLabel.textContent = `x${state.zoom}`;
       scriptKind.value = state.scriptBrush.kind;
+      updateUndoRedoButtons();
     }
     boot();
   </script>
