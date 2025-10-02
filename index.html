@@ -998,7 +998,7 @@
               Player.slideLockActive = false;
               Player.segmentTileTime = speedNow;
             }
-            if (Player.isHopping) { ensureAudio(); try{ audioCtx && audioCtx.resume(); }catch(e){} playHop(); }
+            if (Player.isHopping) { PlaySFX('hop', { volume: 0.9, rate: 1.0 }); }
             // progress zostaje jako „resztka” (>0) – płynnie w nowy segment
           } else {
             // stop – idealnie w centrum kafla
@@ -1255,7 +1255,12 @@
       if(!running){ running=true; lastTime=performance.now(); requestAnimationFrame(step); }
     });
     document.addEventListener('fullscreenchange', ()=>{
-      bumpLayoutFixes(); if(!document.fullscreenElement){ startOverlay.classList.remove('hidden'); running=false; }
+      bumpLayoutFixes();
+      if (!document.fullscreenElement) {
+        startOverlay.classList.remove('hidden');
+        running=false;
+        StopMusic({ fade: 0.5 });
+      }
     });
 
     window.addEventListener('resize', bumpLayoutFixes);
