@@ -3,109 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Map Editor – JSON + Undo/Redo + Shapes</title>
-  <style>
-    :root {
-      --bg: #0f1115;
-      --panel: #161922;
-      --panel-2: #1b2030;
-      --text: #e7eaf1;
-      --muted: #9aa3b2;
-      --accent: #6ea8fe;
-      --danger: #ff6b6b;
-      --grid: #2a3040;
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      background: linear-gradient(180deg, #0f1115, #0f1115 200px, #0c0f14);
-      color: var(--text);
-      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      display: grid;
-      grid-template-columns: 300px 1fr;
-      grid-template-rows: auto 1fr;
-      grid-template-areas:
-        "sidebar toolbar"
-        "sidebar main";
-      gap: 10px;
-      padding: 10px;
-    }
-    header#toolbar {
-      grid-area: toolbar;
-      background: var(--panel);
-      border: 1px solid #222838;
-      border-radius: 12px;
-      padding: 10px;
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 8px;
-      align-items: center;
-      box-shadow: 0 6px 20px rgba(0,0,0,.25);
-    }
-    #sidebar {
-      grid-area: sidebar;
-      display: flex;
-      flex-direction: column;
-      background: var(--panel);
-      border: 1px solid #222838;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 6px 20px rgba(0,0,0,.25);
-    }
-    #sidebar h3 {
-      margin: 0;
-      padding: 10px 12px;
-      background: var(--panel-2);
-      border-bottom: 1px solid #21263a;
-      font-size: 13px;
-      letter-spacing: .4px;
-      text-transform: uppercase;
-      color: #c9d0e3;
-    }
-    .ctrl {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: #131722;
-      border: 1px solid #242a3e;
-      border-radius: 8px;
-      padding: 6px 8px;
-    }
-    .ctrl label { color: var(--muted); font-size: 12px; }
-    select, input[type="text"], input[type="number"], input[type="file"], textarea, button {
-      background: #0f1320;
-      color: var(--text);
-      border: 1px solid #26314c;
-      border-radius: 8px;
-      padding: 6px 8px;
-      outline: none;
-    }
-    textarea { resize: vertical; }
-    select:focus, input:focus, textarea:focus, button:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(110,168,254,.2); }
-    button { cursor: pointer; }
-    button.primary { background: linear-gradient(180deg, #2a5fff, #2749e9); border-color: #3c5bff; }
-    button.ghost { background: #111524; }
-    button.danger { background: #2b1212; border-color: #4b1d1d; color: #ffc7c7; }
-    button:disabled { opacity: 0.5; cursor: default; }
-
-    #pickerPanel { padding: 10px; display: grid; gap: 8px; }
-    #pickerScroll { overflow-y: auto; height: calc(100vh - 300px); border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; background: #0f1320; }
-    #pickerCanvas { display: block; image-rendering: pixelated; }
-    #pickedTilePreview { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
-    #pickedTileCanvas { image-rendering: pixelated; border:1px solid #2a2f45; border-radius: 6px; background:#0b0f18; }
-
-    main#main { grid-area: main; background: var(--panel); border: 1px solid #222838; border-radius: 12px; padding: 10px; display: grid; grid-template-rows: 1fr auto; gap: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
-    #canvasWrap { overflow: auto; background: repeating-conic-gradient(from 45deg, #0d111a 0% 25%, #0a0d14 0% 50%) 50% / 32px 32px; border: 1px dashed #2a2f45; border-radius: 10px; padding: 8px; }
-    #mapCanvas { display: block; image-rendering: pixelated; background: #0b0f18; border: 1px solid #26314c; border-radius: 8px; }
-    #statusBar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 6px 8px; background: #101525; border: 1px solid #212942; border-radius: 8px; color: #c6ccdd; font-size: 12px; }
-
-    .hint { color: var(--muted); font-size: 12px; }
-    .mini { font-size: 12px; color: #c8d0e5; }
-    .flex { display: flex; gap: 8px; align-items: center; }
-    .grid { display: grid; gap: 8px; }
-    .sep { height: 1px; background: #23293b; margin: 6px 0; }
-  </style>
+  <title>Map Editor</title>
+  <link rel="stylesheet" href="./css/editor.css" />
 </head>
 <body>
   <!-- Sidebar / Tileset picker -->
@@ -124,27 +23,27 @@
       <div id="pickedTilePreview" class="ctrl">
         <canvas id="pickedTileCanvas" width="64" height="64"></canvas>
         <div class="grid" style="gap:2px">
-          <div class="mini">Akt. kafel: <span id="pickedLabel">(0,0)</span></div>
-          <div class="mini">Typ (B): <span id="pickedTypeLabel">ground (0)</span></div>
-          <div class="mini">Flagi (A): <span id="pickedFlagsLabel">0b0000</span></div>
+          <div class="mini">Cur. tile: <span id="pickedLabel">(0,0)</span></div>
+          <div class="mini">Type (B): <span id="pickedTypeLabel">ground (0)</span></div>
+          <div class="mini">Flags (A): <span id="pickedFlagsLabel">0b0000</span></div>
         </div>
       </div>
       <div id="pickerScroll">
         <canvas id="pickerCanvas"></canvas>
       </div>
-      <div class="hint">LPM: rysuj, PPM: usuń. ALT: pipeta. Warstwa <b>Scripts</b>: LPM dodaje/edytuje obiekt, PPM usuwa obiekt.</div>
+      <div class="hint">LMB: draw, RMB: delete. ALT: probe. Layer <b>Scripts</b>: LMB adds/edits object, RMB removes object.</div>
     </div>
   </aside>
 
   <!-- Toolbar -->
   <header id="toolbar">
     <div class="ctrl" style="grid-column: span 3;">
-      <label for="mapName">Mapa</label>
+      <label for="mapName">Map</label>
       <input id="mapName" type="text" placeholder="mapa_01" value="mapa_01" />
     </div>
 
     <div class="ctrl" style="grid-column: span 4;">
-      <label>Warstwa</label>
+      <label>Layer</label>
       <label class="flex"><input type="radio" name="layer" value="ground" checked> Ground</label>
       <label class="flex"><input type="radio" name="layer" value="details"> Details</label>
       <label class="flex"><input type="radio" name="layer" value="details2"> Details2</label>
@@ -154,8 +53,8 @@
     </div>
 
     <div class="ctrl" style="grid-column: span 2;">
-      <label class="flex"><input type="checkbox" id="ghostOther" checked> Podgląd pozostałych</label>
-      <label class="flex"><input type="checkbox" id="showGrid" checked> Siatka</label>
+      <label class="flex"><input type="checkbox" id="ghostOther" checked> Show other</label>
+      <label class="flex"><input type="checkbox" id="showGrid" checked> Grid</label>
     </div>
 
     <div class="ctrl" style="grid-column: span 3;">
@@ -176,7 +75,7 @@
       <input id="mapW" type="number" value="32" min="1" max="1024" style="width:72px" />
       <label for="mapH">H</label>
       <input id="mapH" type="number" value="18" min="1" max="1024" style="width:72px" />
-      <button id="applySize" class="ghost">Zastosuj wymiary</button>
+      <button id="applySize" class="ghost">Apply size</button>
     </div>
 
     <div class="ctrl" style="grid-column: span 2;">
@@ -188,11 +87,11 @@
     <div class="ctrl" style="grid-column: span 4;">
       <button id="saveJsonBtn" class="primary">SAVE JSON</button>
       <input id="loadJsonInput" type="file" accept="application/json" />
-      <button id="clearLayerBtn" class="danger">Wyczyść warstwę</button>
+      <button id="clearLayerBtn" class="danger">Clear layer</button>
     </div>
 
     <div class="ctrl" style="grid-column: span 4;">
-      <label>Narzędzie</label>
+      <label>Tools</label>
       <label class="flex"><input type="radio" name="tool" value="pencil" checked> Pencil</label>
       <label class="flex"><input type="radio" name="tool" value="line"> Line</label>
       <label class="flex"><input type="radio" name="tool" value="rect"> Rect</label>
@@ -217,7 +116,8 @@
       </select>
       <label for="scriptProps">Props (JSON)</label>
       <input id="scriptProps" type="text" placeholder='{"to":"map_b","x":2,"y":3}' style="min-width:320px" />
-      <span class="hint">LPM: postaw/edytuj obiekt na kratce. ALT+klik: pipeta obiektu.</span>
+      <button id="openScriptEditorBtn" class="ghost">Open Script Editor…</button>
+      <span class="hint">LMB: add/edit object on tile. ALT+click: probe object.</span>
     </div>
   </header>
 
@@ -228,772 +128,175 @@
     </div>
     <div id="statusBar">
       <div>Pos: <span id="posLabel">-,-</span> | Tile: <span id="tileLabel">-,-</span></div>
-      <div>Warstwa: <span id="layerLabel">ground</span> | Tileset: <span id="tilesetName">(brak)</span></div>
-      <div>MB1: rysuj | MB2: usuń | <span class="hint">Alt: pipeta</span></div>
+      <div>Layer: <span id="layerLabel">ground</span> | Tileset: <span id="tilesetName">(brak)</span></div>
+      <div>MB1: draw | MB2: delete | <span class="hint">Alt: probe</span></div>
     </div>
   </main>
 
-  <script>
-    // ===== Konfiguracje =====
-    const TILESETS = [ './assets/sprites/tileset.png' ];
-
-    const TILE_TYPES = [
-      { name: 'ground', value: 0 },
-      { name: 'wall',   value: 1 },
-      { name: 'ice',    value: 2 },
-      { name: 'ledge',  value: 3 },
-      { name: 'water',  value: 4 },
-      { name: 'lava',   value: 5 },
-      { name: 'decor',  value: 6 }
-    ];
-
-    // Flagi A (dolny nibble): bit0 flipX, bit1 flipY, bit2 rot90, bit3 rezerw.
-    const FLAG = { FLIP_X:1, FLIP_Y:2, ROT_90:4 };
-
-    // Warstwy (kolejność rysowania)
-    const VISUAL_LAYERS = ['ground','details','details2','ceiling','ceiling2'];
-    const ALL_LAYERS = [...VISUAL_LAYERS, 'scripts'];
-
-    // ===== Stan =====
-    const state = {
-      mapW: 32,
-      mapH: 18,
-      tileSize: 32,
-      zoom: 1,
-      activeLayer: 'ground',
-      ghostOther: true,
-      showGrid: true,
-      tool: 'pencil',
-      fillShape: true,
-      brush: { tileX: 0, tileY: 0, typeB: 0, flagsA: 0 },
-      scriptBrush: { kind: 'teleport', props: {} },
-      layers: { ground: null, details: null, details2: null, ceiling: null, ceiling2: null },
-      scripts: [], // {kind, x, y, props}
-      tileset: { url: TILESETS[0], img: null, cols: 0, rows: 0 },
-      mouseDown: false, mouseButton: 0,
-      shapeDrag: { active:false, startX:0, startY:0, endX:0, endY:0 },
-      preview: { active:false, cells:[], erase:false },
-      history: { undo: [], redo: [], current: null, changeIndex: null, limit: 25 }
-    };
-
-    // ===== DOM =====
-    const mapCanvas = document.getElementById('mapCanvas');
-    const mapCtx = mapCanvas.getContext('2d');
-    const pickerCanvas = document.getElementById('pickerCanvas');
-    const pickerCtx = pickerCanvas.getContext('2d');
-    const pickedCanvas = document.getElementById('pickedTileCanvas');
-    const pickedCtx = pickedCanvas.getContext('2d');
-
-    const tilesetSelect = document.getElementById('tilesetSelect');
-    const tileSizeInput = document.getElementById('tileSize');
-    const typeSelect = document.getElementById('typeSelect');
-    const flagFlipX = document.getElementById('flagFlipX');
-    const flagFlipY = document.getElementById('flagFlipY');
-    const flagRot90 = document.getElementById('flagRot90');
-
-    const mapWInput = document.getElementById('mapW');
-    const mapHInput = document.getElementById('mapH');
-    const applySizeBtn = document.getElementById('applySize');
-
-    const zoomRange = document.getElementById('zoomRange');
-    const zoomLabel = document.getElementById('zoomLabel');
-    const ghostOther = document.getElementById('ghostOther');
-    const showGrid = document.getElementById('showGrid');
-
-    const saveJsonBtn = document.getElementById('saveJsonBtn');
-    const loadJsonInput = document.getElementById('loadJsonInput');
-    const clearLayerBtn = document.getElementById('clearLayerBtn');
-    const mapNameInput = document.getElementById('mapName');
-
-    const posLabel = document.getElementById('posLabel');
-    const tileLabel = document.getElementById('tileLabel');
-    const layerLabel = document.getElementById('layerLabel');
-    const tilesetName = document.getElementById('tilesetName');
-    const pickedLabel = document.getElementById('pickedLabel');
-    const pickedTypeLabel = document.getElementById('pickedTypeLabel');
-    const pickedFlagsLabel = document.getElementById('pickedFlagsLabel');
-
-    const scriptTools = document.getElementById('scriptTools');
-    const scriptKind = document.getElementById('scriptKind');
-    const scriptProps = document.getElementById('scriptProps');
-
-    const undoBtn = document.getElementById('undoBtn');
-    const redoBtn = document.getElementById('redoBtn');
-
-    const fillWrap = document.getElementById('fillWrap');
-    const fillShape = document.getElementById('fillShape');
-
-    // ===== Warstwa wyboru =====
-    document.querySelectorAll('input[name="layer"]').forEach(r => {
-      r.addEventListener('change', () => {
-        state.activeLayer = r.value;
-        layerLabel.textContent = state.activeLayer;
-        const ceilingMode = (state.activeLayer === 'ceiling' || state.activeLayer === 'ceiling2');
-        typeSelect.disabled = ceilingMode || state.activeLayer==='scripts';
-        flagFlipX.disabled = state.activeLayer==='scripts';
-        flagFlipY.disabled = state.activeLayer==='scripts';
-        flagRot90.disabled = state.activeLayer==='scripts';
-        // Tool restrictions on Scripts
-        const toolInputs = [...document.querySelectorAll('input[name="tool"]')];
-        const scriptsMode = state.activeLayer==='scripts';
-        toolInputs.forEach(inp => inp.disabled = scriptsMode && inp.value!=='pencil');
-        if (scriptsMode) { state.tool='pencil'; toolInputs.find(i=>i.value==='pencil').checked=true; }
-        fillWrap.style.display = (state.tool==='rect' || state.tool==='circle') && !scriptsMode ? '' : 'none';
-        scriptTools.style.display = scriptsMode ? '' : 'none';
-        state.preview.active=false;
-        render();
-      });
-    });
-
-    // ===== Tool select =====
-    document.querySelectorAll('input[name="tool"]').forEach(t => {
-      t.addEventListener('change', () => {
-        state.tool = t.value;
-        fillWrap.style.display = (state.tool==='rect' || state.tool==='circle') && state.activeLayer!=='scripts' ? '' : 'none';
-        state.preview.active=false;
-        render();
-      });
-    });
-    fillShape.addEventListener('change', () => { state.fillShape = fillShape.checked; render(); });
-
-    ghostOther.addEventListener('change', () => { state.ghostOther = ghostOther.checked; render(); });
-    showGrid.addEventListener('change', () => { state.showGrid = showGrid.checked; render(); });
-
-    function initTilesetSelect() {
-      tilesetSelect.innerHTML = '';
-      TILESETS.forEach((url, i) => {
-        const opt = document.createElement('option');
-        opt.value = url; opt.textContent = url; if (i===0) opt.selected = true;
-        tilesetSelect.appendChild(opt);
-      });
-      tilesetSelect.addEventListener('change', () => loadTileset(tilesetSelect.value));
-    }
-
-    function initTypeSelect() {
-      typeSelect.innerHTML = '';
-      TILE_TYPES.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.value; opt.textContent = `${t.name} (${t.value})`;
-        typeSelect.appendChild(opt);
-      });
-      typeSelect.value = 0;
-      typeSelect.addEventListener('change', () => {
-        state.brush.typeB = parseInt(typeSelect.value,10) || 0;
-        updatePickedLabels();
-      });
-    }
-
-    [flagFlipX, flagFlipY, flagRot90].forEach(chk => chk.addEventListener('change', () => {
-      state.brush.flagsA = (flagFlipX.checked?FLAG.FLIP_X:0) | (flagFlipY.checked?FLAG.FLIP_Y:0) | (flagRot90.checked?FLAG.ROT_90:0);
-      updatePickedLabels();
-      renderPickedPreview();
-    }));
-
-    tileSizeInput.addEventListener('change', () => {
-      const v = clamp(parseInt(tileSizeInput.value,10)||32, 4, 128);
-      state.tileSize = v; tileSizeInput.value = v;
-      computeTilesetGrid();
-      drawPicker();
-      resizeMapCanvas();
-      render();
-      renderPickedPreview();
-    });
-
-    mapWInput.addEventListener('change', syncSizeInputs);
-    mapHInput.addEventListener('change', syncSizeInputs);
-    function syncSizeInputs(){
-      mapWInput.value = clamp(parseInt(mapWInput.value,10)||state.mapW,1, 4096);
-      mapHInput.value = clamp(parseInt(mapHInput.value,10)||state.mapH,1, 4096);
-    }
-
-    applySizeBtn.addEventListener('click', () => {
-      const W = parseInt(mapWInput.value,10);
-      const H = parseInt(mapHInput.value,10);
-      beginAction({ kind:'resize', layer:'*' });
-      const old = snapshotAll();
-      resizeMap(W,H,true);
-      endAction({ kind:'resize', layer:'*', snapshotBefore: old, snapshotAfter: snapshotAll() });
-      render();
-    });
-
-    zoomRange.addEventListener('input', () => {
-      state.zoom = parseInt(zoomRange.value,10) || 1;
-      zoomLabel.textContent = `x${state.zoom}`;
-      resizeMapCanvas();
-      render();
-    });
-
-    scriptKind.addEventListener('change', () => { state.scriptBrush.kind = scriptKind.value; });
-    scriptProps.addEventListener('change', () => { const p = tryParseJSON(scriptProps.value); if (p!==undefined) state.scriptBrush.props = p; });
-
-    // ===== Tileset =====
-    async function loadTileset(url){
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      await img.decode();
-      state.tileset.img = img;
-      state.tileset.url = url;
-      tilesetName.textContent = url.split('/').pop();
-      computeTilesetGrid();
-      drawPicker();
-      renderPickedPreview();
-      render();
-    }
-
-    function computeTilesetGrid(){
-      const { img } = state.tileset; if (!img) return;
-      const ts = state.tileSize;
-      state.tileset.cols = Math.floor(img.width / ts);
-      state.tileset.rows = Math.floor(img.height / ts);
-      pickerCanvas.width = state.tileset.cols * ts;
-      pickerCanvas.height = state.tileset.rows * ts;
-    }
-
-    function drawPicker(){
-      const { img } = state.tileset; if (!img) return;
-      const ts = state.tileSize;
-      pickerCtx.clearRect(0,0,pickerCanvas.width,pickerCanvas.height);
-      pickerCtx.imageSmoothingEnabled = false;
-      pickerCtx.drawImage(img, 0,0);
-      pickerCtx.strokeStyle = '#223'; pickerCtx.lineWidth = 1;
-      for (let x=0; x<=pickerCanvas.width; x+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(x+.5,0); pickerCtx.lineTo(x+.5,pickerCanvas.height); pickerCtx.stroke(); }
-      for (let y=0; y<=pickerCanvas.height; y+=ts){ pickerCtx.beginPath(); pickerCtx.moveTo(0,y+.5); pickerCtx.lineTo(pickerCanvas.width,y+.5); pickerCtx.stroke(); }
-      pickerCtx.strokeStyle = '#6ea8fe'; pickerCtx.lineWidth = 2;
-      pickerCtx.strokeRect(state.brush.tileX*ts+1, state.brush.tileY*ts+1, ts-2, ts-2);
-    }
-
-    pickerCanvas.addEventListener('mousedown', (e) => {
-      const p = pointerInCanvas(e, pickerCanvas);
-      const ts = state.tileSize;
-      const tileX = Math.floor(p.x / ts);
-      const tileY = Math.floor(p.y / ts);
-      state.brush.tileX = clamp(tileX,0,state.tileset.cols-1);
-      state.brush.tileY = clamp(tileY,0,state.tileset.rows-1);
-      drawPicker();
-      renderPickedPreview();
-      updatePickedLabels();
-      e.preventDefault();
-    });
-
-    function renderPickedPreview(){
-      const {img} = state.tileset; if (!img) return;
-      const ts = state.tileSize;
-      pickedCanvas.width = ts*2; pickedCanvas.height = ts*2;
-      pickedCtx.imageSmoothingEnabled = false;
-      pickedCtx.clearRect(0,0,pickedCanvas.width,pickedCanvas.height);
-      const sx = state.brush.tileX * ts; const sy = state.brush.tileY * ts;
-      pickedCtx.save();
-      pickedCtx.translate(pickedCanvas.width/2, pickedCanvas.height/2);
-      applyBrushTransform(pickedCtx);
-      pickedCtx.drawImage(img, sx, sy, ts, ts, -ts, -ts, ts*2, ts*2);
-      pickedCtx.restore();
-    }
-
-    function updatePickedLabels(){
-      pickedLabel.textContent = `(${state.brush.tileX},${state.brush.tileY})`;
-      const t = TILE_TYPES.find(t => t.value===state.brush.typeB) || {name:'custom', value: state.brush.typeB};
-      pickedTypeLabel.textContent = `${t.name} (${t.value})`;
-      pickedFlagsLabel.textContent = '0b' + (state.brush.flagsA & 0x0f).toString(2).padStart(4,'0');
-    }
-
-    // ===== Dane mapy =====
-    function allocateLayerGrid(W,H){
-      const g = new Array(H);
-      for (let y=0; y<H; y++){ g[y] = new Array(W).fill(null); }
-      return g;
-    }
-
-    function resizeMap(W,H, preserve=false){
-      const oldW = state.mapW, oldH = state.mapH;
-      const oldLayers = preserve ? { ...state.layers } : null;
-      const oldScripts = preserve ? [...state.scripts] : null;
-      state.mapW = W; state.mapH = H;
-      mapWInput.value = W; mapHInput.value = H;
-      for (const L of VISUAL_LAYERS){ state.layers[L] = allocateLayerGrid(W,H); }
-      if (preserve && oldLayers){
-        const minW = Math.min(oldW, W), minH = Math.min(oldH, H);
-        for (const L of VISUAL_LAYERS){
-          const src = oldLayers[L]; if (!src) continue;
-          for (let y=0;y<minH;y++) for (let x=0;x<minW;x++) state.layers[L][y][x] = src[y][x];
-        }
-        state.scripts = oldScripts.filter(s => s.x < W && s.y < H);
-      } else {
-        state.scripts = [];
-      }
-      resizeMapCanvas();
-    }
-
-    function resizeMapCanvas(){
-      const scale = state.zoom;
-      const cssW = state.mapW * state.tileSize * scale;
-      const cssH = state.mapH * state.tileSize * scale;
-      mapCanvas.width = cssW; mapCanvas.height = cssH;
-      mapCtx.imageSmoothingEnabled = false;
-    }
-
-    function setTile(layer, x, y, tile){
-      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
-      state.layers[layer][y][x] = tile; // tile = {r,g,b,a} lub null
-    }
-
-    function getTile(layer, x, y){
-      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return null;
-      return state.layers[layer][y][x];
-    }
-
-    function isCeilingLayer(name){ return name==='ceiling' || name==='ceiling2'; }
-
-    // ===== Render =====
-    function render(){
-      const ts = state.tileSize; const z = state.zoom; const {img} = state.tileset;
-      mapCtx.clearRect(0,0,mapCanvas.width,mapCanvas.height);
-      const drawLayer = (name, alpha) => {
-        const grid = state.layers[name]; if (!grid || !img) return;
-        mapCtx.save(); mapCtx.globalAlpha = alpha; mapCtx.scale(z,z);
-        for (let y=0; y<state.mapH; y++){
-          for (let x=0; x<state.mapW; x++){
-            const t = grid[y][x]; if (!t) continue;
-            drawTileAt(x,y, t.r, t.g, t.b, t.a);
-          }
-        }
-        mapCtx.restore();
-      };
-
-      for (const L of VISUAL_LAYERS){
-        const alpha = (state.activeLayer===L) ? 1.0 : (state.ghostOther?0.35:0.15);
-        drawLayer(L, alpha);
-      }
-
-      drawScriptsOverlay();
-      drawPreview();
-
-      if (state.showGrid){
-        mapCtx.save(); mapCtx.scale(z,z);
-        mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
-        for (let x=0; x<=state.mapW*ts; x+=ts){ mapCtx.beginPath(); mapCtx.moveTo(x+.5,0); mapCtx.lineTo(x+.5,state.mapH*ts); mapCtx.stroke(); }
-        for (let y=0; y<=state.mapH*ts; y+=ts){ mapCtx.beginPath(); mapCtx.moveTo(0,y+.5); mapCtx.lineTo(state.mapW*ts,y+.5); mapCtx.stroke(); }
-        mapCtx.restore();
-      }
-    }
-
-    function drawTileAt(tx,ty, r,g, b, a){
-      const { img } = state.tileset; if (!img) return;
-      const ts = state.tileSize; const z = state.zoom;
-      const sx = r * ts; const sy = g * ts;
-      const dx = tx * ts * z; const dy = ty * ts * z;
-      mapCtx.save();
-      mapCtx.translate(dx + (ts*z)/2, dy + (ts*z)/2);
-      applyFlagsTransform(mapCtx, a);
-      mapCtx.drawImage(img, sx, sy, ts, ts, -(ts*z)/2, -(ts*z)/2, ts*z, ts*z);
-      mapCtx.restore();
-    }
-
-    function drawScriptsOverlay(){
-      const ts = state.tileSize; const z = state.zoom;
-      mapCtx.save(); mapCtx.scale(z,z);
-      for (const s of state.scripts){
-        const x = s.x*ts, y = s.y*ts;
-        mapCtx.fillStyle = 'rgba(255,215,0,0.85)';
-        mapCtx.strokeStyle = 'rgba(0,0,0,0.8)';
-        mapCtx.lineWidth = 2;
-        mapCtx.beginPath();
-        mapCtx.rect(x+2, y+2, ts-4, ts-4);
-        mapCtx.fill(); mapCtx.stroke();
-        mapCtx.fillStyle = '#000';
-        mapCtx.font = `${Math.floor(ts*0.5)}px monospace`;
-        mapCtx.textAlign = 'center'; mapCtx.textBaseline = 'middle';
-        const label = (s.kind||'').slice(0,1).toUpperCase();
-        mapCtx.fillText(label, x+ts/2, y+ts/2);
-      }
-      mapCtx.restore();
-    }
-
-    function drawPreview(){
-      if (!state.preview.active) return;
-      const { img } = state.tileset; if (!img) return;
-      const ts = state.tileSize; const z = state.zoom;
-      mapCtx.save(); mapCtx.globalAlpha = state.preview.erase ? 0.35 : 0.5;
-      mapCtx.scale(z,z);
-      for (const {x,y} of state.preview.cells){
-        if (x<0||y<0||x>=state.mapW||y>=state.mapH) continue;
-        if (state.preview.erase){
-          // podświetl kasowanie
-          mapCtx.fillStyle = 'rgba(255,60,60,0.35)';
-          mapCtx.fillRect(x*ts, y*ts, ts, ts);
-        } else {
-          const sx = state.brush.tileX * ts; const sy = state.brush.tileY * ts;
-          mapCtx.save();
-          mapCtx.translate(x*ts + ts/2, y*ts + ts/2);
-          applyBrushTransform(mapCtx);
-          mapCtx.drawImage(img, sx, sy, ts, ts, -ts/2, -ts/2, ts, ts);
-          mapCtx.restore();
-        }
-      }
-      mapCtx.restore();
-    }
-
-    function applyBrushTransform(ctx){
-      const f = state.brush.flagsA & 0x0f;
-      if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
-      const sx = (f & FLAG.FLIP_X) ? -1 : 1;
-      const sy = (f & FLAG.FLIP_Y) ? -1 : 1;
-      ctx.scale(sx, sy);
-    }
-
-    function applyFlagsTransform(ctx, a){
-      const f = a & 0x0f;
-      if (f & FLAG.ROT_90) ctx.rotate(Math.PI/2);
-      const sx = (f & FLAG.FLIP_X) ? -1 : 1;
-      const sy = (f & FLAG.FLIP_Y) ? -1 : 1;
-      ctx.scale(sx, sy);
-    }
-
-    // ===== Historia (Undo/Redo) =====
-    function beginAction(meta){
-      state.history.current = { ...meta, changes: [], scriptChanges: [] };
-      state.history.changeIndex = new Map();
-      // podgląd off
-      state.preview.active = false;
-    }
-
-    function recordChange(layer, x, y, before, after){
-      const key = layer+':'+x+','+y;
-      if (!state.history.changeIndex.has(key)){
-        const idx = state.history.current.changes.length;
-        state.history.changeIndex.set(key, idx);
-        state.history.current.changes.push({ layer, x, y, before: deepClone(before), after: deepClone(after) });
-      } else {
-        const idx = state.history.changeIndex.get(key);
-        state.history.current.changes[idx].after = deepClone(after);
-      }
-    }
-
-    function endAction(meta){
-      const action = state.history.current; if (!action) return;
-      Object.assign(action, meta||{});
-      if (action.changes.length===0 && action.scriptChanges.length===0 && !action.snapshotBefore){ state.history.current=null; return; }
-      state.history.undo.push(action);
-      if (state.history.undo.length>state.history.limit) state.history.undo.shift();
-      state.history.redo = [];
-      state.history.current = null; state.history.changeIndex=null;
-      updateUndoRedoButtons();
-    }
-
-    function applyAction(action, dir){ // dir: 1 redo, -1 undo
-      if (action.snapshotBefore){
-        // resize snapshot
-        const snap = dir===-1 ? action.snapshotBefore : action.snapshotAfter;
-        restoreSnapshot(snap);
-      } else {
-        const list = action.changes;
-        for (const ch of list){
-          const src = dir===-1 ? ch.before : ch.after;
-          setTile(ch.layer, ch.x, ch.y, cloneTile(src));
-        }
-        for (const sc of action.scriptChanges){
-          const src = dir===-1 ? sc.before : sc.after;
-          if (!src) removeScriptAt(sc.x, sc.y, false);
-          else upsertScriptAt(sc.x, sc.y, src.kind, src.props, false);
-        }
-      }
-      render();
-    }
-
-    function undo(){
-      const a = state.history.undo.pop(); if (!a) return;
-      state.history.redo.push(a);
-      applyAction(a, -1);
-      updateUndoRedoButtons();
-    }
-    function redo(){
-      const a = state.history.redo.pop(); if (!a) return;
-      state.history.undo.push(a);
-      applyAction(a, 1);
-      updateUndoRedoButtons();
-    }
-
-    function updateUndoRedoButtons(){
-      undoBtn.disabled = state.history.undo.length===0;
-      redoBtn.disabled = state.history.redo.length===0;
-    }
-
-    undoBtn.addEventListener('click', undo);
-    redoBtn.addEventListener('click', redo);
-
-    window.addEventListener('keydown', (e) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      if (e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); }
-      else if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); }
-    });
-
-    // ===== Interakcja mapy =====
-    mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
-
-    mapCanvas.addEventListener('mousedown', (e) => {
-      const btn = e.button; // 0=LB,2=RB
-      state.mouseDown = true; state.mouseButton = btn;
-      const altPick = e.altKey;
-      const {tx,ty} = tileFromEvent(e);
-
-      if (state.activeLayer==='scripts'){
-        if (altPick){ const s = findScriptAt(tx,ty); if (s){ scriptKind.value = s.kind; state.scriptBrush.kind=s.kind; scriptProps.value = JSON.stringify(s.props||{}); state.scriptBrush.props = s.props||{}; } return; }
-        beginAction({ kind: btn===2?'script-remove':'script-upsert', layer:'scripts' });
-        if (btn===2){ recordScriptChange(tx,ty, findScriptAt(tx,ty), null); removeScriptAt(tx,ty,false); }
-        else { const props = tryParseJSON(scriptProps.value); if (props!==undefined) state.scriptBrush.props=props; recordScriptChange(tx,ty, findScriptAt(tx,ty), {kind:state.scriptBrush.kind, x:tx, y:ty, props:deepClone(state.scriptBrush.props)}); upsertScriptAt(tx,ty,state.scriptBrush.kind,state.scriptBrush.props,false); }
-        endAction(); render(); return;
-      }
-
-      // Visual layers
-      if (altPick){ const t = getTile(state.activeLayer, tx, ty); if (t){ setBrushFromTile(t); } return; }
-
-      if (state.tool==='pencil'){
-        beginAction({ kind: btn===2?'erase':'paint', layer: state.activeLayer });
-        paintOne(tx,ty, btn===2);
-      } else {
-        state.shapeDrag.active = true; state.shapeDrag.startX = tx; state.shapeDrag.startY = ty; state.shapeDrag.endX = tx; state.shapeDrag.endY = ty;
-        updatePreviewCells();
-      }
-    });
-
-    mapCanvas.addEventListener('mousemove', (e) => {
-      updateStatusFromEvent(e);
-      if (!state.mouseDown) return;
-      const {tx,ty} = tileFromEvent(e);
-
-      if (state.activeLayer==='scripts') return; // brak drag na scripts
-
-      if (state.tool==='pencil'){
-        paintOne(tx,ty, state.mouseButton===2);
-      } else if (state.shapeDrag.active){
-        state.shapeDrag.endX = tx; state.shapeDrag.endY = ty; updatePreviewCells();
-      }
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (!state.mouseDown) return; state.mouseDown = false;
-
-      if (state.activeLayer!=='scripts' && state.tool!=='pencil' && state.shapeDrag.active){
-        const cells = state.preview.cells; const erase = state.preview.erase; state.preview.active=false; state.shapeDrag.active=false;
-        beginAction({ kind: erase?'shape-erase':'shape-paint', layer: state.activeLayer, tool: state.tool, filled: state.fillShape });
-        for (const {x,y} of cells){ applyPaintAt(state.activeLayer, x, y, erase ? null : makeCurrentTile()); }
-        endAction(); render();
-      } else if (state.history.current){
-        endAction(); render();
-      }
-    });
-
-    function updateStatusFromEvent(e){
-      const p = pointerInCanvas(e, mapCanvas);
-      posLabel.textContent = `${Math.floor(p.x)},${Math.floor(p.y)}`;
-      const {tx,ty} = tileFromEvent(e);
-      tileLabel.textContent = `${tx},${ty}`;
-    }
-
-    function paintOne(tx,ty, erase){
-      applyPaintAt(state.activeLayer, tx, ty, erase ? null : makeCurrentTile());
-      render(); // realtime
-    }
-
-    function applyPaintAt(layer, x, y, newTile){
-      if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
-      const before = getTile(layer, x, y);
-      const equal = tilesEqual(before, newTile);
-      if (equal) return;
-      setTile(layer, x, y, cloneTile(newTile));
-      if (!state.history.current) beginAction({ kind:'paint', layer });
-      recordChange(layer, x, y, before, newTile);
-    }
-
-    function makeCurrentTile(){
-      const r = state.brush.tileX & 255; const g = state.brush.tileY & 255;
-      const b = isCeilingLayer(state.activeLayer) ? 0 : (state.brush.typeB & 255);
-      const a = state.brush.flagsA & 255;
-      return { r,g,b,a };
-    }
-
-    function setBrushFromTile(t){
-      state.brush.tileX=t.r; state.brush.tileY=t.g; state.brush.typeB=t.b; state.brush.flagsA=t.a;
-      typeSelect.value = String(state.brush.typeB);
-      flagFlipX.checked = !!(t.a & FLAG.FLIP_X);
-      flagFlipY.checked = !!(t.a & FLAG.FLIP_Y);
-      flagRot90.checked = !!(t.a & FLAG.ROT_90);
-      drawPicker(); renderPickedPreview(); updatePickedLabels();
-    }
-
-    function recordScriptChange(x,y,before,after){
-      const entry = { x,y, before: before? deepClone(before): null, after: after? deepClone(after): null };
-      state.history.current.scriptChanges.push(entry);
-    }
-
-    function findScriptAt(x,y){ return state.scripts.find(s => s.x===x && s.y===y); }
-    function removeScriptAt(x,y, doRecord=true){ state.scripts = state.scripts.filter(s => !(s.x===x && s.y===y)); }
-    function upsertScriptAt(x,y, kind, props, doRecord=true){
-      const ex = findScriptAt(x,y);
-      if (ex){ ex.kind = kind; ex.props = deepClone(props||{}); }
-      else state.scripts.push({ kind, x, y, props: deepClone(props||{}) });
-    }
-
-    function tileFromEvent(evt){
-      const rect = mapCanvas.getBoundingClientRect();
-      const x = (evt.clientX - rect.left); const y = (evt.clientY - rect.top);
-      const tsz = state.tileSize * state.zoom;
-      return { tx: clamp(Math.floor(x / tsz), 0, state.mapW-1), ty: clamp(Math.floor(y / tsz), 0, state.mapH-1) };
-    }
-
-    function pointerInCanvas(evt, canvas){
-      const rect = canvas.getBoundingClientRect();
-      return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) };
-    }
-
-    // ===== Shape helpers & preview =====
-    function updatePreviewCells(){
-      const {startX,startY,endX,endY} = state.shapeDrag;
-      let cells = [];
-      if (state.tool==='line') cells = lineCells(startX,startY,endX,endY);
-      else if (state.tool==='rect') cells = rectCells(startX,startY,endX,endY, state.fillShape);
-      else if (state.tool==='circle') cells = ellipseCellsBBox(startX,startY,endX,endY, state.fillShape);
-      state.preview.active = true; state.preview.cells = cells; state.preview.erase = (state.mouseButton===2);
-      render();
-    }
-
-    function rectCells(x0,y0,x1,y1, filled){
-      const minx = Math.min(x0,x1), maxx=Math.max(x0,x1);
-      const miny = Math.min(y0,y1), maxy=Math.max(y0,y1);
-      const out=[];
-      if (filled){
-        for (let y=miny;y<=maxy;y++) for (let x=minx;x<=maxx;x++) out.push({x,y});
-      } else {
-        for (let x=minx;x<=maxx;x++){ out.push({x,y:miny}); out.push({x,y:maxy}); }
-        for (let y=miny+1;y<=maxy-1;y++){ out.push({x:minx,y}); out.push({x:maxx,y}); }
-      }
-      return clampCells(out);
-    }
-
-    function lineCells(x0,y0,x1,y1){
-      const out=[]; let dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
-      let sx = x0<x1?1:-1, sy = y0<y1?1:-1; let err = dx-dy; let x=x0,y=y0;
-      while(true){ out.push({x,y}); if (x===x1 && y===y1) break; const e2 = 2*err; if (e2> -dy){ err-=dy; x+=sx; } if (e2 < dx){ err+=dx; y+=sy; } }
-      return clampCells(out);
-    }
-
-    function ellipseCellsBBox(x0,y0,x1,y1, filled){
-      const minx=Math.min(x0,x1), maxx=Math.max(x0,x1);
-      const miny=Math.min(y0,y1), maxy=Math.max(y0,y1);
-      const cx = (minx+maxx)/2, cy=(miny+maxy)/2;
-      const rx = Math.max(0,(maxx-minx)/2), ry=Math.max(0,(maxy-miny)/2);
-      const out=[];
-      if (rx===0 && ry===0) return [{x:Math.round(cx), y:Math.round(cy)}];
-      const th = 1/Math.max(1, Math.max(rx,ry)); // grubość konturu dla outline
-      for (let y=miny; y<=maxy; y++){
-        for (let x=minx; x<=maxx; x++){
-          const nx = (x+0.5 - cx) / (rx || 1);
-          const ny = (y+0.5 - cy) / (ry || 1);
-          const d = nx*nx + ny*ny;
-          if (filled){ if (d <= 1.0) out.push({x,y}); }
-          else { if (d <= 1.0 && d >= (1.0 - th*2)) out.push({x,y}); }
-        }
-      }
-      return clampCells(out);
-    }
-
-    function clampCells(cells){
-      const out=[]; for (const c of cells){ if (c.x>=0 && c.y>=0 && c.x<state.mapW && c.y<state.mapH) out.push(c); }
-      // dedupe
-      const seen=new Set(); const unique=[]; for(const c of out){ const k=c.x+','+c.y; if(!seen.has(k)){ seen.add(k); unique.push(c);} }
-      return unique;
-    }
-
-    // ===== SAVE / LOAD JSON =====
-    function saveJSON(){
-      const data = {
-        name: (mapNameInput.value||'mapa').replace(/\s+/g,'_'),
-        tileset: state.tileset.url,
-        tileSize: state.tileSize,
-        width: state.mapW, height: state.mapH,
-        layers: {},
-        scripts: state.scripts
-      };
-      for (const L of VISUAL_LAYERS){ data.layers[L] = state.layers[L]; }
-      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${data.name}.json`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-    }
-
-    async function loadJSON(file){
-      if (!file) return;
-      const text = await file.text();
-      let obj; try { obj = JSON.parse(text); } catch(e){ alert('Błędny JSON'); return; }
-      const W = obj.width|0, H = obj.height|0; if (!W||!H){ alert('Brak width/height w JSON'); return; }
-      state.tileSize = obj.tileSize|0 || state.tileSize; tileSizeInput.value = state.tileSize;
-      if (obj.tileset){ await loadTileset(obj.tileset); tilesetSelect.value = obj.tileset; }
-      resizeMap(W,H,false);
-      for (const L of VISUAL_LAYERS){
-        if (obj.layers && obj.layers[L]){
-          for (let y=0;y<Math.min(H, obj.layers[L].length);y++){
-            for (let x=0;x<Math.min(W, obj.layers[L][y].length);x++){
-              const t = obj.layers[L][y][x];
-              state.layers[L][y][x] = t && typeof t.r==='number' ? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null;
-            }
-          }
-        }
-      }
-      state.scripts = Array.isArray(obj.scripts) ? obj.scripts.map(s=>({kind:String(s.kind||'note'), x:s.x|0, y:s.y|0, props: s.props||{}})) : [];
-      mapNameInput.value = (obj.name||'mapa');
-      // clear history after load
-      state.history.undo = []; state.history.redo = []; state.history.current=null; updateUndoRedoButtons();
-      render();
-    }
-
-    saveJsonBtn.addEventListener('click', saveJSON);
-    loadJsonInput.addEventListener('change', (e)=> loadJSON(e.target.files[0]));
-    clearLayerBtn.addEventListener('click', () => {
-      beginAction({ kind:'clear', layer: state.activeLayer });
-      if (state.activeLayer==='scripts') { const before = deepClone(state.scripts); state.scripts = []; state.history.current.scriptChanges.push({x:-1,y:-1,before:before, after: []}); }
-      else { const L = state.activeLayer; for (let y=0;y<state.mapH;y++) for (let x=0;x<state.mapW;x++){ const before=getTile(L,x,y); if(before){ setTile(L,x,y,null); recordChange(L,x,y,before,null);} } }
-      endAction(); render();
-    });
-
-    // ===== Snapshot helpers (for resize undo) =====
-    function snapshotAll(){
-      const snap = { W: state.mapW, H: state.mapH, layers: {}, scripts: deepClone(state.scripts) };
-      for (const L of VISUAL_LAYERS){ snap.layers[L] = deepClone(state.layers[L]); }
-      return snap;
-    }
-    function restoreSnapshot(snap){
-      state.mapW = snap.W; state.mapH = snap.H; mapWInput.value = snap.W; mapHInput.value = snap.H;
-      for (const L of VISUAL_LAYERS){ state.layers[L] = deepClone(snap.layers[L]); }
-      state.scripts = deepClone(snap.scripts);
-      resizeMapCanvas();
-    }
-
-    // ===== Utils =====
-    function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
-    function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
-    function cloneTile(t){ return t? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null; }
-    function tilesEqual(a,b){
-      if (!a && !b) return true; if (!a || !b) return false;
-      return a.r===b.r && a.g===b.g && a.b===b.b && a.a===b.a;
-    }
-    function tryParseJSON(s){ if (!s || !s.trim()) return {}; try { return JSON.parse(s); } catch(e){ alert('Props: błędny JSON'); return undefined; } }
-
-    // ===== Start =====
-    function boot(){
-      initTilesetSelect();
-      initTypeSelect();
-      resizeMap(state.mapW, state.mapH);
-      resizeMapCanvas();
-      updatePickedLabels();
-      loadTileset(state.tileset.url);
-      zoomLabel.textContent = `x${state.zoom}`;
-      scriptKind.value = state.scriptBrush.kind;
-      updateUndoRedoButtons();
-    }
-    boot();
-  </script>
+  <!-- ================= Script Overlay (RPGMaker-like) ================= -->
+  <div id="scriptOverlay" aria-hidden="true">
+    <div class="ov" role="dialog" aria-modal="true" aria-labelledby="ovTitle">
+      <div class="ov__header">
+        <div class="ov__title" id="ovTitle">Script Editor</div>
+        <div class="ov__actions">
+          <button id="scriptOvSave" class="btn btn--accent">Save</button>
+          <button id="scriptOvClose" class="btn">Close</button>
+        </div>
+      </div>
+
+      <div class="ov__body">
+        <!-- LEFT: Sprite Picker -->
+        <section class="panel spritePicker">
+          <h4>Sprite</h4>
+          <div class="preview">
+            <canvas id="spritePreview" width="96" height="96"></canvas>
+            <div class="grid">
+              <div class="row">
+                <label>Use sprite</label>
+                <div class="toggle" id="spriteUseToggle" role="switch" aria-checked="false" tabindex="0"></div>
+              </div>
+              <div class="row">
+                <label for="spriteSheetSelect">Sprite sheet</label>
+                <select id="spriteSheetSelect"></select>
+              </div>
+              <div class="row">
+                <label>Frame (x,y)</label>
+                <div class="flex">
+                  <input type="number" id="spriteFrameX" min="0" value="0" style="width:80px" />
+                  <input type="number" id="spriteFrameY" min="0" value="0" style="width:80px" />
+                </div>
+              </div>
+              <div class="row">
+                <label for="spriteAnimSpeed">Anim speed</label>
+                <input type="number" id="spriteAnimSpeed" min="0" step="1" value="8" />
+              </div>
+              <div class="row">
+                <label for="spriteDir">Direction</label>
+                <select id="spriteDir">
+                  <option value="down">down</option>
+                  <option value="left">left</option>
+                  <option value="right">right</option>
+                  <option value="up">up</option>
+                </select>
+              </div>
+              <div class="row">
+                <label>Loop</label>
+                <label class="flex"><input type="checkbox" id="spriteLoop" checked> yes</label>
+              </div>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="subtle">Select tile – click to set start frame.</div>
+            <div class="grid">
+              <div class="grid spritePicker grid">
+                <div class="grid" id="spriteGrid">
+                  <!-- thumbs filled by JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- MIDDLE: Actions Flow -->
+        <section class="panel flow">
+          <div class="flow__toolbar">
+            <div class="flow__add">
+              <label for="actionAddSel" class="mini">Add action</label>
+              <select id="actionAddSel">
+                <option value="move">Move</option>
+                <option value="dialog">Dialogue box</option>
+                <option value="sleep">Sleep (waiting)</option>
+                <option value="battle">Start battle <!-- //todo params --></option>
+                <option value="jump">Jump animation</option>
+                <option value="inventory">Add/Remove item <!-- //todo params --></option>
+              </select>
+              <button id="actionAddBtn" class="btn btn--accent">Add</button>
+            </div>
+            <div class="flex">
+              <button id="actionCollapseAll" class="btn">Hide all</button>
+              <button id="actionExpandAll" class="btn">Show all</button>
+              <button id="actionClear" class="btn btn--danger">Clear</button>
+            </div>
+          </div>
+
+          <div class="flow__list" id="flowList">
+            <!-- items generated by JS -->
+          </div>
+        </section>
+
+        <!-- RIGHT: Variables -->
+        <section class="panel vars">
+          <h4>Variables</h4>
+          <div class="vars__toolbar">
+            <input type="text" id="varsSearch" placeholder="Szukaj po nazwie lub ID…" />
+            <select id="varsTypeFilter">
+              <option value="">All types</option>
+              <option value="int">int</option>
+              <option value="bool">bool</option>
+              <option value="float">float</option>
+              <option value="enum">enum</option>
+              <option value="enum_flags">enum (flags)</option>
+            </select>
+            <button id="varsResetFilter" class="btn">Reset</button>
+            <button id="varsAddBtn" class="btn">Add variable</button>
+            <button id="varsExportBtn" class="btn btn--accent">Export JSON</button>
+            <label class="btn btn--ghost">
+              Import JSON
+              <input id="varsImportInput" type="file" accept="application/json" class="visually-hidden" />
+            </label>
+          </div>
+          <div id="varsTableWrap">
+            <table class="vars" aria-describedby="varsMeta">
+              <thead>
+                <tr>
+                  <th style="width:72px;">ID</th>
+                  <th class="vars__name">Name</th>
+                  <th class="vars__type">Type</th>
+                  <th>Enum values / Flags</th>
+                  <th style="width:140px;">Default</th>
+                </tr>
+              </thead>
+              <tbody id="varsTableBody">
+                <!-- rows populated by JS -->
+              </tbody>
+            </table>
+          </div>
+          <div id="varsMeta" class="vars__meta">Source: <code>./assets/variables.json</code> — if none, a thousand will generate with names „Variable 1..1000”.</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Templates -->
+  <template id="tplActionItem">
+    <div class="flow__item" data-action="">
+      <div class="flow__head">
+        <div class="flow__title">
+          <span class="dragHandle" title="Przeciągnij do zmiany kolejności"><i class="icon drag"></i></span>
+          <span class="badge" data-step>1</span>
+          <span class="label">Action</span>
+        </div>
+        <div class="flow__controls">
+          <button class="btn btn--ghost btn-collapse"><i class="icon caret"></i></button>
+          <button class="btn btn--ghost btn-dup" title="Duplikuj"><i class="icon dup"></i></button>
+          <button class="btn btn--danger btn-del" title="Usuń"><i class="icon delete"></i></button>
+        </div>
+      </div>
+      <div class="flow__body">
+        <!-- dynamic fields per action -->
+      </div>
+    </div>
+  </template>
+
+  <!-- Optional generic modal + toast -->
+  <div class="modal" id="genericModal" aria-hidden="true">
+    <div class="modal__panel">
+      <div class="grid" id="genericModalBody"></div>
+    </div>
+  </div>
+  <div class="toast hidden" id="toast"></div>
+
+  <!-- Engine -->
+  <script src="./engine/editor.js"></script>
 </body>
 </html>
