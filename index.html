@@ -637,6 +637,8 @@
     }
     
     /* ===== AudioCtrl: PlayMusic, StopMusic, PlaySFX ===== */
+    const AUDIO_STORAGE_KEY = 'audio.volumes.v1';
+
     const AudioCtrl = {
       ctx: null,
       master: null,
@@ -646,8 +648,35 @@
       musicSource: null,    // aktualny grający BufferSource
       musicName: null,
       volume: { master: 0.9, music: 0.8, sfx: 1.0 },
-      ready: false
+      ready: false,
+      mutedSnapshot: null
     };
+
+    const _clamp01 = v => Math.max(0, Math.min(1, v ?? 0));
+    function _ramp(param /*AudioParam*/, to, fadeSec=0){
+      const t = AudioCtrl.ctx.currentTime;
+      param.cancelScheduledValues(t);
+      if (fadeSec && fadeSec > 0){
+        param.setValueAtTime(param.value, t);
+        param.linearRampToValueAtTime(to, t + fadeSec);
+      } else {
+        param.setValueAtTime(to, t);
+      }
+    }
+
+    function _loadVolumes(){
+      try{
+        const raw = localStorage.getItem(AUDIO_STORAGE_KEY);
+        if (!raw) return;
+        const v = JSON.parse(raw);
+        ['master','music','sfx'].forEach(k=>{
+          if (typeof v?.[k] === 'number') AudioCtrl.volume[k] = _clamp01(v[k]);
+        });
+      }catch(_){}
+    }
+    function _saveVolumes(){
+      try{ localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(AudioCtrl.volume)); }catch(_){}
+    }
 
     function initAudio(){
       if (AudioCtrl.ready) return;
@@ -655,9 +684,16 @@
       if (!AC) { console.warn('WebAudio not supported'); return; }
       const ctx = new AC();
 
-      const master = ctx.createGain(); master.gain.value = AudioCtrl.volume.master;
-      const musicGain = ctx.createGain(); musicGain.gain.value = 0.0; // fade-in
-      const sfxGain = ctx.createGain(); sfxGain.gain.value = AudioCtrl.volume.sfx;
+      _loadVolumes();
+
+      const master = ctx.createGain();    // master bus
+      const musicGain = ctx.createGain(); // music bus
+      const sfxGain = ctx.createGain();   // sfx bus
+
+      master.gain.value   = AudioCtrl.volume.master;
+      // muzyka startuje zera — PlayMusic zrobi fade-in do targetu (volume.music)
+      musicGain.gain.value = 0.0;
+      sfxGain.gain.value   = AudioCtrl.volume.sfx;
 
       musicGain.connect(master);
       sfxGain.connect(master);
@@ -669,6 +705,50 @@
       AudioCtrl.sfxGain = sfxGain;
       AudioCtrl.ready = true;
     }
+
+    // === PUBLIC VOLUME API ===
+    async function SetMasterVolume(v, {fade=0}={}){
+      await resumeAudio(); if (!AudioCtrl.master) return;
+      AudioCtrl.volume.master = _clamp01(v);
+      _saveVolumes();
+      _ramp(AudioCtrl.master.gain, AudioCtrl.volume.master, fade);
+    }
+    async function SetMusicVolume(v, {fade=0}={}){
+      await resumeAudio(); if (!AudioCtrl.musicGain) return;
+      AudioCtrl.volume.music = _clamp01(v);
+      _saveVolumes();
+      // docelowy poziom muzyki; jeśli gra — dojedziemy rampą, jeśli nie — PlayMusic użyje tego targetu
+      _ramp(AudioCtrl.musicGain.gain, AudioCtrl.volume.music, fade);
+    }
+    async function SetSFXVolume(v){
+      await resumeAudio(); if (!AudioCtrl.sfxGain) return;
+      AudioCtrl.volume.sfx = _clamp01(v);
+      _saveVolumes();
+      _ramp(AudioCtrl.sfxGain.gain, AudioCtrl.volume.sfx, 0);
+    }
+    function GetVolumes(){
+      return { ...AudioCtrl.volume };
+    }
+    async function MuteAll({fade=0.15}={}){
+      await resumeAudio(); if (!AudioCtrl.master) return;
+      if (!AudioCtrl.mutedSnapshot) AudioCtrl.mutedSnapshot = { ...AudioCtrl.volume };
+      _ramp(AudioCtrl.master.gain, 0.0, fade);
+    }
+    async function UnmuteAll({fade=0.15}={}){
+      await resumeAudio(); if (!AudioCtrl.master) return;
+      const snap = AudioCtrl.mutedSnapshot || AudioCtrl.volume;
+      _ramp(AudioCtrl.master.gain, _clamp01(snap.master), fade);
+      AudioCtrl.mutedSnapshot = null;
+    }
+
+    window.AudioVolume = {
+      setMaster: SetMasterVolume,
+      setMusic:  SetMusicVolume,
+      setSFX:    SetSFXVolume,
+      get:       GetVolumes,
+      mute:      MuteAll,
+      unmute:    UnmuteAll
+    };
 
     async function resumeAudio(){
       initAudio();
@@ -694,8 +774,11 @@
         const src = AudioCtrl.ctx.createBufferSource();
         src.buffer = buf;
         src.playbackRate.value = opts.rate || 1.0;
+
         const g = AudioCtrl.ctx.createGain();
-        g.gain.value = Math.max(0, Math.min(1, (opts.volume ?? 1) * AudioCtrl.volume.sfx));
+        // TYLKO lokalna głośność sfx (0..1); globalna siedzi na AudioCtrl.sfxGain
+        g.gain.value = _clamp01(opts.volume ?? 1);
+
         src.connect(g); g.connect(AudioCtrl.sfxGain);
         src.start(0);
       }catch(e){ /* no-op */ }
