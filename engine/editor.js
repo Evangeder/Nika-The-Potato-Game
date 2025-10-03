@@ -33,7 +33,7 @@
     mouseDown: false, mouseButton: 0,
     shapeDrag: { active:false, startX:0, startY:0, endX:0, endY:0 },
     preview: { active:false, cells:[], erase:false },
-
+    dragScript: { active:false, origX:0, origY:0 },
     history: { undo: [], redo: [], current: null, changeIndex: null, limit: 25 },
 
     // Overlay/Variables
@@ -281,6 +281,22 @@
       else if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); }
     });
 
+    // Kasowanie obiektu Script tylko przez [Delete]
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Delete' && state.activeLayer === 'scripts'){
+        if (!state.selectedScript) return;
+        const {x,y} = state.selectedScript;
+        const before = findScriptAt(x,y);
+        if (!before) return;
+        beginAction({ kind:'script-remove', layer:'scripts' });
+        recordScriptChange(x,y, before, null);
+        removeScriptAt(x,y);
+        state.selectedScript = null;
+        endAction();
+        render();
+      }
+    });
+
     // Canvas events
     mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
     mapCanvas.addEventListener('mousedown', onCanvasDown);
@@ -467,6 +483,11 @@
       mapCtx.textAlign = 'center'; mapCtx.textBaseline = 'middle';
       const label = (s.kind||'').slice(0,1).toUpperCase();
       mapCtx.fillText(label, x+ts/2, y+ts/2);
+      if (state.selectedScript && state.selectedScript.x===s.x && state.selectedScript.y===s.y){
+        mapCtx.strokeStyle = 'rgba(80,180,255,0.9)';
+        mapCtx.lineWidth = 2;
+        mapCtx.strokeRect(x+1.5, y+1.5, ts-3, ts-3);
+      }
 
       // selection ring
       if (state.selectedScript && state.selectedScript.x===s.x && state.selectedScript.y===s.y){
@@ -584,66 +605,94 @@
     const {tx,ty} = tileFromEvent(e);
 
     if (state.activeLayer==='scripts'){
-      // ALT = pipeta + zaznaczenie
+      // ALT = pipeta + zaznacz
       if (altPick){
         const s = findScriptAt(tx,ty);
         if (s){
-          state.selectedScript = {x:s.x, y:s.y};
           scriptKind.value = s.kind;
+          state.scriptBrush.kind = s.kind;
           scriptProps.value = JSON.stringify(s.props||{});
+          state.scriptBrush.props = s.props||{};
+          state.selectedScript = {x:s.x,y:s.y};
           render();
         }
         return;
       }
 
-      // PPM na Scripts nic nie robi (ew. tylko zaznacza jeśli coś pod kursorem)
+      // PPM: tylko zaznacz (albo nic)
       if (btn===2){
         const s = findScriptAt(tx,ty);
-        if (s){
-          state.selectedScript = {x:s.x, y:s.y};
-          render();
-        }
+        if (s){ state.selectedScript = {x:s.x,y:s.y}; render(); }
         return;
       }
 
-      // LPM: jeśli brak obiektu -> dodaj; jeśli jest -> tylko zaznacz (bez modyfikacji)
-      const ex = findScriptAt(tx,ty);
-      if (ex){
-        state.selectedScript = {x:ex.x, y:ex.y};
-        scriptKind.value = ex.kind;
-        scriptProps.value = JSON.stringify(ex.props||{});
-        render();
+      // LPM:
+      const s = findScriptAt(tx,ty);
+      if (s){
+        // start przeciągania istniejącego
+        state.selectedScript = {x:s.x,y:s.y};
+        state.dragScript.active = true;
+        state.dragScript.origX = s.x;
+        state.dragScript.origY = s.y;
+        beginAction({ kind:'script-move', layer:'scripts' });
       } else {
-        beginAction({ kind:'script-add', layer:'scripts' });
+        // dodaj nowy i od razu wejdź w tryb drag
         const parsed = tryParseJSON(scriptProps.value);
         if (parsed!==undefined) state.scriptBrush.props = parsed;
         const after = { kind: state.scriptBrush.kind, x: tx, y: ty, props: deepClone(state.scriptBrush.props) };
+        beginAction({ kind:'script-add', layer:'scripts' });
         recordScriptChange(tx,ty, null, after);
         upsertScriptAt(tx,ty, after.kind, after.props, false);
-        state.selectedScript = {x:tx, y:ty};
         endAction();
-        render();
+
+        state.selectedScript = {x:tx,y:ty};
+        state.dragScript.active = true;
+        state.dragScript.origX = tx;
+        state.dragScript.origY = ty;
+        beginAction({ kind:'script-move', layer:'scripts' });
       }
+      render();
       return;
     }
 
-    // --- warstwy wizualne ---
+    // Warstwy wizualne
     if (altPick){ const t = getTile(state.activeLayer, tx, ty); if (t){ setBrushFromTile(t); } return; }
 
     if (state.tool==='pencil'){
       beginAction({ kind: btn===2?'erase':'paint', layer: state.activeLayer });
       paintOne(tx,ty, btn===2);
     } else {
-      state.shapeDrag.active = true; state.shapeDrag.startX = tx; state.shapeDrag.startY = ty; state.shapeDrag.endX = tx; state.shapeDrag.endY = ty;
+      state.shapeDrag.active = true;
+      state.shapeDrag.startX = tx; state.shapeDrag.startY = ty;
+      state.shapeDrag.endX = tx; state.shapeDrag.endY = ty;
       updatePreviewCells();
     }
   }
   function onCanvasMove(e){
     updateStatusFromEvent(e);
-    if (!state.mouseDown) return;
     const {tx,ty} = tileFromEvent(e);
 
-    if (state.activeLayer==='scripts') return; // no drag painting for scripts
+    // Drag na warstwie Scripts
+    if (state.activeLayer==='scripts' && state.dragScript.active){
+      const sel = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
+      if (!sel) return;
+
+      // nie wchodź, jeśli kratka zajęta innym obiektem
+      const other = findScriptAt(tx,ty);
+      if (other && !(other.x===sel.x && other.y===sel.y)) return;
+
+      sel.x = tx; sel.y = ty;
+      state.selectedScript = {x:tx, y:ty};
+      render();
+      return;
+    }
+
+    if (!state.mouseDown) return;
+
+    if (state.activeLayer==='scripts'){
+      // bez drag – nic
+      return;
+    }
 
     if (state.tool==='pencil'){
       paintOne(tx,ty, state.mouseButton===2);
@@ -652,7 +701,26 @@
     }
   }
   function onCanvasUp(){
-    if (!state.mouseDown) return; state.mouseDown = false;
+    const wasDraggingScript = state.dragScript.active;
+    if (wasDraggingScript){
+      state.dragScript.active = false;
+      const s = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
+      if (s){
+        const ox = state.dragScript.origX, oy = state.dragScript.origY;
+        const nx = s.x, ny = s.y;
+        if (ox!==nx || oy!==ny){
+          const before = { kind: s.kind, x: ox, y: oy, props: deepClone(s.props||{}) };
+          const after  = { kind: s.kind, x: nx, y: ny, props: deepClone(s.props||{}) };
+          recordScriptChange(ox, oy, before, null); // remove ze starej kratki
+          recordScriptChange(nx, ny, null, after);  // add na nowej kratce
+        }
+      }
+      if (state.history.current){ endAction(); }
+      render();
+    }
+
+    if (!state.mouseDown) return;
+    state.mouseDown = false;
 
     if (state.activeLayer!=='scripts' && state.tool!=='pencil' && state.shapeDrag.active){
       const cells = state.preview.cells; const erase = state.preview.erase;
