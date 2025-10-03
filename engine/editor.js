@@ -1040,9 +1040,9 @@
     notify._t = setTimeout(() => toast.classList.add('hidden'), 1800);
   }
   const g = (typeof window!=='undefined'?window:globalThis);
-
   g.__mapEditor__ = g.__mapEditor__ || {};
   const api = g.__mapEditor__;
+  api.state = api.state || state;
 
   if (!api.register){
     api.register = function register(payload){
@@ -1087,6 +1087,18 @@
   function applySingleMap(mapObj){
     const { state, helpers } = api; if (!state || !helpers) return;
     const { resizeMap, allocateLayerGrid, render } = helpers;
+
+    api.register({
+      state,
+      helpers: {
+        render,
+        resizeMap,
+        allocateLayerGrid,
+        isCeilingLayer,
+        setTile,
+        getTile,
+      },
+    });
 
     document.getElementById('mapName') && (document.getElementById('mapName').value = mapObj.name || mapObj.id || 'map');
     state.tileSize = mapObj.tileSize || state.tileSize || 32;
@@ -1197,7 +1209,9 @@
     const tbody = document.getElementById('varsTableBody');
     if (!tbody) return;
 
-    const state = (api.state.varsLoaded ? api.state : Object.assign(api.state, { varsLoaded:true, vars: [] }));
+    const s = api.state || (api.state = state);
+    if (!('varsLoaded' in s)) Object.assign(s, { varsLoaded:true, vars: [] });
+    const stateVars = s;
 
     function renderTable(){
       const query = (q?.value||'').toLowerCase();
