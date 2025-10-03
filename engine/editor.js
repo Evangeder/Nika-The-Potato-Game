@@ -103,6 +103,13 @@
   const saveProjectBtn = $('#saveProjectBtn');
   const loadProjectInput = $('#loadProjectInput');
 
+  // Overlay DOM
+  const overlay = document.getElementById('overlay');
+  const overlaySave = document.getElementById('overlaySave');
+  const overlayClose = document.getElementById('overlayClose');
+  const overlayKind = document.getElementById('overlayKind');
+  const overlayJson = document.getElementById('overlayJson');
+  const overlayPos  = document.getElementById('overlayPos');
   const openScriptEditorBtn = $('#openScriptEditorBtn');
 
   // Overlay (RPGMaker-like) — referencje mogą być null, jeśli nie używasz overlayu
@@ -864,21 +871,17 @@
     }
   }
   function onCanvasDblClick(e){
-    if (state.activeLayer!=='scripts') return;
-    const {tx,ty} = tileFromEvent(e);
-    let s = findScriptAt(tx,ty);
-    if (!s){
-      const parsed = tryParseJSON(scriptProps?.value);
-      if (parsed!==undefined) state.scriptBrush.props = parsed;
-      s = { kind:'script', x:tx, y:ty, props: deepClone(state.scriptBrush.props) };
-      beginAction({ kind:'script-add', layer:'scripts' });
-      recordScriptChange(tx,ty, null, s);
-      upsertScriptAt(tx,ty,'script', state.scriptBrush.props, false);
-      endAction();
+    if (state.activeLayer !== 'scripts') return;
+    const {tx, ty} = tileFromEvent(e);
+
+    if (!findScriptAt(tx, ty)) {
+      const props = tryParseJSON(scriptProps.value);
+      if (props!==undefined) state.scriptBrush.props = props;
+      upsertScriptAt(tx, ty, state.scriptBrush.kind, state.scriptBrush.props, false);
     }
-    state.selectedScript = {x:tx, y:ty};
-    render();
-    openOverlayFor(tx,ty);
+
+    state.selectedScript = { x: tx, y: ty };
+    openOverlayFor(tx, ty);
   }
   function onCanvasUp(){
     const wasDraggingScript = state.dragScript.active;
@@ -922,7 +925,7 @@
     applyPaintAt(state.activeLayer, tx, ty, erase ? null : makeCurrentTile());
     render();
   }
-  
+
   // === Tile utils (needed by paint/undo) ===
   function tilesEqual(a, b) {
     if (a === b) return true;
@@ -1343,4 +1346,45 @@
     initOverlayUI();
     initVarsUI();
   }
+
+  let _overlaySel = {x:0, y:0};
+
+  function openOverlayFor(x, y) {
+    const s = findScriptAt(x, y);
+    if (!s) return; // safety
+
+    _overlaySel = {x, y};
+    overlayKind.value = s.kind || 'script';
+    overlayJson.value = JSON.stringify(s.props || {}, null, 2);
+    overlayPos.textContent = `x=${x}, y=${y}`;
+
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+
+  overlayClose && overlayClose.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+  });
+
+  overlaySave && overlaySave.addEventListener('click', () => {
+    const s = findScriptAt(_overlaySel.x, _overlaySel.y);
+    if (!s) { overlay.style.display='none'; return; }
+
+    const parsed = tryParseJSON(overlayJson.value);
+    if (parsed === undefined) { alert('Błędny JSON w polu Props'); return; }
+
+    s.kind = (overlayKind.value || 'script').trim();
+    s.props = parsed;
+
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    render();
+  });
+
+  openScriptEditorBtn && openScriptEditorBtn.addEventListener('click', () => {
+    const sel = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
+    if (!sel) { alert('Najpierw kliknij obiekt na warstwie Scripts, aby go zaznaczyć.'); return; }
+    openOverlayFor(sel.x, sel.y);
+  });
 })();
