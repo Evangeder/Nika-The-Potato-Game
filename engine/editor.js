@@ -25,6 +25,7 @@
     brush: { tileX: 0, tileY: 0, typeB: 0, flagsA: 0 },
     tileset: { url: TILESETS[0], img: null, cols: 0, rows: 0 },
 
+    project: { maps: [], current: 0, variables: [] },
     layers: { ground: null, details: null, details2: null, ceiling: null, ceiling2: null },
     scripts: [],             // [{kind, x, y, props}]
     selectedScript: null,    // {x,y} (ostatnio kliknięty/pipetowany)
@@ -92,8 +93,16 @@
 
   // Scripts panel (toolbar)
   const scriptTools = $('#scriptTools');
-  const scriptKind = $('#scriptKind');
   const scriptProps = $('#scriptProps');
+
+  // Project UI
+  const mapsList = $('#mapsList');
+  const newMapBtn = $('#newMapBtn');
+  const delMapBtn = $('#delMapBtn');
+  const renameMapBtn = $('#renameMapBtn');
+  const saveProjectBtn = $('#saveProjectBtn');
+  const loadProjectInput = $('#loadProjectInput');
+
   const openScriptEditorBtn = $('#openScriptEditorBtn');
 
   // Overlay (RPGMaker-like)
@@ -237,7 +246,6 @@
     });
 
     // Scripts toolbar
-    scriptKind.addEventListener('change', () => { state.scriptBrush.kind = scriptKind.value; });
     scriptProps.addEventListener('change', () => {
       const p = tryParseJSON(scriptProps.value);
       if (p!==undefined) state.scriptBrush.props = p;
@@ -255,17 +263,18 @@
     saveJsonBtn.addEventListener('click', saveJSON);
     loadJsonInput.addEventListener('change', (e)=> loadJSON(e.target.files[0]));
     clearLayerBtn.addEventListener('click', () => {
-      beginAction({ kind:'clear', layer: state.activeLayer });
-      if (state.activeLayer==='scripts') {
+      const name = state.activeLayer;
+      if (!confirm(`Are you really sure about that?\nThis will clear '${name}'.`)) return;
+      beginAction({ kind:'clear', layer: name });
+      if (name==='scripts') {
         const before = deepClone(state.scripts);
         state.scripts = [];
         state.history.current.scriptChanges.push({x:-1,y:-1,before:before, after: []});
         state.selectedScript = null;
       } else {
-        const L = state.activeLayer;
         for (let y=0;y<state.mapH;y++) for (let x=0;x<state.mapW;x++){
-          const before=getTile(L,x,y);
-          if(before){ setTile(L,x,y,null); recordChange(L,x,y,before,null); }
+          const before=getTile(name,x,y);
+          if(before){ setTile(name,x,y,null); recordChange(name,x,y,before,null); }
         }
       }
       endAction(); render();
@@ -276,9 +285,20 @@
     redoBtn.addEventListener('click', redo);
     window.addEventListener('keydown', (e) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      if (e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); }
-      else if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); }
+      if (mod){
+        if (e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
+        if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); return; }
+      }
+      if (e.key === 'Delete' && state.activeLayer==='scripts'){
+        const sel = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
+        if (!sel) return;
+        beginAction({ kind:'script-remove', layer:'scripts' });
+        recordScriptChange(sel.x, sel.y, { kind: sel.kind, x: sel.x, y: sel.y, props: deepClone(sel.props||{}) }, null);
+        removeScriptAt(sel.x, sel.y);
+        state.selectedScript = null;
+        endAction();
+        render();
+      }
     });
 
     // Kasowanie obiektu Script tylko przez [Delete]
@@ -348,6 +368,8 @@
     drawPicker();
     renderPickedPreview();
     render();
+    initProjectIfEmpty();
+    refreshMapsList();
   }
   function computeTilesetGrid(){
     const { img } = state.tileset; if (!img) return;
@@ -388,6 +410,190 @@
     pickedTypeLabel.textContent = `${t.name} (${t.value})`;
     pickedFlagsLabel.textContent = '0b' + (state.brush.flagsA & 0x0f).toString(2).padStart(4,'0');
   }
+
+  // ===== Project (multi-map) =====
+  function currentMap(){ return state.project.maps[state.project.current]; }
+
+  function captureCurrentMap(){
+    const name = mapNameInput.value || `map_${Date.now()}`;
+    const data = {
+      id: name, name,
+      tileset: state.tileset.url,
+      tileSize: state.tileSize,
+      width: state.mapW, height: state.mapH,
+      layers: {},
+      scripts: deepClone(state.scripts)
+    };
+    for (const L of VISUAL_LAYERS){ data.layers[L] = deepClone(state.layers[L]); }
+    return data;
+  }
+
+  async function applyMapObject(m){
+    mapNameInput.value = m.name || m.id || 'map';
+    state.tileSize = m.tileSize || state.tileSize; tileSizeInput.value = state.tileSize;
+    await loadTileset(m.tileset || state.tileset.url);
+    resizeMap(m.width|0, m.height|0, false);
+    for (const L of VISUAL_LAYERS){
+      if (m.layers && m.layers[L]) state.layers[L] = deepClone(m.layers[L]);
+      else state.layers[L] = allocateLayerGrid(state.mapW, state.mapH);
+    }
+    state.scripts = Array.isArray(m.scripts) ? deepClone(m.scripts).map(s => ({
+      kind: 'script',
+      x: s.x|0, y: s.y|0,
+      props: s.props || {}
+    })) : [];
+    render();
+  }
+
+  function initProjectIfEmpty(){
+    if (!state.project.maps.length){
+      state.project.maps.push(captureCurrentMap());
+      state.project.current = 0;
+    } else {
+      // zsynchronizuj bieżącą mapę z UI nazwy
+      mapNameInput.value = currentMap().name || currentMap().id || 'map';
+    }
+  }
+
+  function refreshMapsList(){
+    if (!mapsList) return;
+    mapsList.innerHTML = '';
+    state.project.maps.forEach((m, i) => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ghost';
+      btn.style.cssText = 'width:100%; text-align:left;';
+      btn.textContent = `${i===state.project.current ? '▶ ' : ''}${m.name || m.id}`;
+      btn.addEventListener('click', () => selectMap(i));
+      li.appendChild(btn);
+      mapsList.appendChild(li);
+    });
+  }
+
+  async function selectMap(idx){
+    if (idx<0 || idx>=state.project.maps.length) return;
+    // zapisz bieżącą
+    state.project.maps[state.project.current] = captureCurrentMap();
+    state.project.current = idx;
+    await applyMapObject(state.project.maps[idx]);
+    refreshMapsList();
+  }
+
+  function newMap(){
+    const base = 'map';
+    let n = 1;
+    const names = new Set(state.project.maps.map(m => m.name || m.id));
+    while (names.has(`${base}_${n}`)) n++;
+    const m = {
+      id: `${base}_${n}`, name: `${base}_${n}`,
+      tileset: state.tileset.url,
+      tileSize: state.tileSize,
+      width: 32, height: 18,
+      layers: {},
+      scripts: []
+    };
+    for (const L of VISUAL_LAYERS){ m.layers[L] = allocateLayerGrid(m.width, m.height); }
+    // zapisz bieżącą i dodaj nową
+    state.project.maps[state.project.current] = captureCurrentMap();
+    state.project.maps.push(m);
+    state.project.current = state.project.maps.length - 1;
+    applyMapObject(m);
+    refreshMapsList();
+  }
+
+  function deleteMap(){
+    if (state.project.maps.length <= 1){ alert('Nie można usunąć ostatniej mapy'); return; }
+    const curr = currentMap();
+    if (!confirm(`Are you really sure about that?\nDelete map '${curr.name || curr.id}'?`)) return;
+    state.project.maps.splice(state.project.current, 1);
+    state.project.current = Math.max(0, state.project.current - 1);
+    applyMapObject(currentMap());
+    refreshMapsList();
+  }
+
+  function renameMap(){
+    const curr = currentMap();
+    const name = prompt('New map name:', curr.name || curr.id);
+    if (!name) return;
+    curr.name = name; curr.id = name;
+    mapNameInput.value = name;
+    refreshMapsList();
+  }
+
+  function saveProject(){
+    // zaktualizuj bieżącą mapę
+    state.project.maps[state.project.current] = captureCurrentMap();
+    const data = {
+      projectVersion: 1,
+      variables: state.project.variables || [],
+      maps: state.project.maps
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'project.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function loadProject(file){
+    if (!file) return;
+    try{
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      if (Array.isArray(obj.maps)){
+        state.project.maps = obj.maps.map(normalizeMapObject);
+        state.project.variables = Array.isArray(obj.variables) ? obj.variables : (obj.variables || []);
+        state.project.current = 0;
+        await applyMapObject(state.project.maps[0]);
+        refreshMapsList();
+      } else {
+        // backward: pojedyncza mapa -> owiń jako projekt
+        const single = normalizeMapObject(obj);
+        state.project.maps = [single];
+        state.project.variables = Array.isArray(obj.variables) ? obj.variables : [];
+        state.project.current = 0;
+        await applyMapObject(single);
+        refreshMapsList();
+      }
+    } catch {
+      alert('Błędny JSON projektu/mapy');
+    } finally {
+      loadProjectInput.value = '';
+    }
+  }
+
+  function normalizeMapObject(obj){
+    const W = obj.width|0, H = obj.height|0;
+    const m = {
+      id: obj.id || obj.name || 'map',
+      name: obj.name || obj.id || 'map',
+      tileset: obj.tileset || state.tileset.url,
+      tileSize: obj.tileSize || state.tileSize,
+      width: W || state.mapW, height: H || state.mapH,
+      layers: {},
+      scripts: Array.isArray(obj.scripts) ? obj.scripts.map(s=>({ kind:'script', x:s.x|0, y:s.y|0, props: s.props||{} })) : []
+    };
+    for (const L of VISUAL_LAYERS){
+      if (obj.layers && obj.layers[L]) m.layers[L] = deepClone(obj.layers[L]);
+      else m.layers[L] = allocateLayerGrid(m.width, m.height);
+    }
+    return m;
+  }
+
+  // Hooki UI projektu
+  newMapBtn?.addEventListener('click', newMap);
+  delMapBtn?.addEventListener('click', deleteMap);
+  renameMapBtn?.addEventListener('click', renameMap);
+  saveProjectBtn?.addEventListener('click', saveProject);
+  loadProjectInput?.addEventListener('change', (e)=> loadProject(e.target.files[0]));
+  mapNameInput?.addEventListener('change', () => {
+    const cm = currentMap(); if (!cm) return;
+    cm.name = mapNameInput.value || cm.name || cm.id || 'map';
+    cm.id = cm.name;
+    refreshMapsList();
+  });
 
   // ==========/ Map data ==========
   function allocateLayerGrid(W,H){
@@ -609,49 +815,36 @@
       if (altPick){
         const s = findScriptAt(tx,ty);
         if (s){
-          scriptKind.value = s.kind;
-          state.scriptBrush.kind = s.kind;
+          state.scriptBrush.kind = 'script';
           scriptProps.value = JSON.stringify(s.props||{});
           state.scriptBrush.props = s.props||{};
-          state.selectedScript = {x:s.x,y:s.y};
+          state.selectedScript = {x:s.x, y:s.y};
           render();
         }
         return;
       }
-
-      // PPM: tylko zaznacz (albo nic)
+      // PPM: tylko zaznacz
       if (btn===2){
         const s = findScriptAt(tx,ty);
-        if (s){ state.selectedScript = {x:s.x,y:s.y}; render(); }
+        if (s){ state.selectedScript = {x:s.x, y:s.y}; render(); }
         return;
       }
-
-      // LPM:
-      const s = findScriptAt(tx,ty);
-      if (s){
-        // start przeciągania istniejącego
-        state.selectedScript = {x:s.x,y:s.y};
-        state.dragScript.active = true;
-        state.dragScript.origX = s.x;
-        state.dragScript.origY = s.y;
-        beginAction({ kind:'script-move', layer:'scripts' });
+      // LPM: jeśli istnieje -> zaznacz, jeśli pusto -> dodaj
+      const ex = findScriptAt(tx,ty);
+      if (ex){
+        state.selectedScript = {x:ex.x, y:ex.y};
+        render();
       } else {
-        // dodaj nowy i od razu wejdź w tryb drag
         const parsed = tryParseJSON(scriptProps.value);
         if (parsed!==undefined) state.scriptBrush.props = parsed;
-        const after = { kind: state.scriptBrush.kind, x: tx, y: ty, props: deepClone(state.scriptBrush.props) };
+        const after = { kind:'script', x:tx, y:ty, props: deepClone(state.scriptBrush.props) };
         beginAction({ kind:'script-add', layer:'scripts' });
         recordScriptChange(tx,ty, null, after);
-        upsertScriptAt(tx,ty, after.kind, after.props, false);
+        upsertScriptAt(tx,ty, 'script', state.scriptBrush.props, false);
         endAction();
-
-        state.selectedScript = {x:tx,y:ty};
-        state.dragScript.active = true;
-        state.dragScript.origX = tx;
-        state.dragScript.origY = ty;
-        beginAction({ kind:'script-move', layer:'scripts' });
+        state.selectedScript = {x:tx, y:ty};
+        render();
       }
-      render();
       return;
     }
 
@@ -932,6 +1125,7 @@
     actionCollapseAll?.addEventListener('click', () => toggleAllItems(true));
     actionExpandAll?.addEventListener('click', () => toggleAllItems(false));
     actionClear?.addEventListener('click', () => {
+      if (!confirm('Are you really sure about that?\nThis will clear all actions.')) return;
       const s = getOverlayTarget(); if (!s) return;
       s.props = s.props || {};
       s.props.actions = [];

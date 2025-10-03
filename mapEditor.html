@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Map Editor</title>
+  <title>Game Editor</title>
   <link rel="stylesheet" href="./css/editor.css" />
 </head>
 <body>
@@ -32,6 +32,22 @@
         <canvas id="pickerCanvas"></canvas>
       </div>
       <div class="hint">LMB: draw, RMB: delete. ALT: probe. Layer <b>Scripts</b>: LMB adds/edits object, RMB removes object.</div>
+    </div>
+
+    <h3>Project / Maps</h3>
+    <div id="projectPanel" style="padding:10px; display:grid; gap:8px;">
+      <div class="ctrl">
+        <button id="newMapBtn" class="ghost">+ New Map</button>
+        <button id="delMapBtn" class="danger">Delete Map</button>
+        <button id="renameMapBtn" class="ghost">Rename</button>
+      </div>
+      <div class="ctrl">
+        <button id="saveProjectBtn" class="primary">SAVE PROJECT</button>
+        <input id="loadProjectInput" type="file" accept="application/json" />
+      </div>
+      <div class="ctrl" style="display:block; max-height:220px; overflow:auto;">
+        <ul id="mapsList" style="list-style:none; margin:0; padding:0; display:grid; gap:6px;"></ul>
+      </div>
     </div>
   </aside>
 
@@ -107,17 +123,9 @@
     <!-- Script tools (visible only on Scripts layer) -->
     <div id="scriptTools" class="ctrl" style="grid-column: 1 / -1; display:none;">
       <strong>Scripts:</strong>
-      <label for="scriptKind">Kind</label>
-      <select id="scriptKind">
-        <option value="teleport">teleport</option>
-        <option value="npc">npc</option>
-        <option value="trigger">trigger</option>
-        <option value="note">note</option>
-      </select>
       <label for="scriptProps">Props (JSON)</label>
-      <input id="scriptProps" type="text" placeholder='{"to":"map_b","x":2,"y":3}' style="min-width:320px" />
-      <button id="openScriptEditorBtn" class="ghost">Open Script Editor…</button>
-      <span class="hint">LMB: add/edit object on tile. ALT+click: probe object.</span>
+      <input id="scriptProps" type="text" placeholder='{"note":"..."}' style="min-width:320px" />
+      <span class="hint">LPM: dodaj/zaznacz • ALT+klik: pipeta • Delete: usuń • Przeciągnij, aby przenieść.</span>
     </div>
   </header>
 
