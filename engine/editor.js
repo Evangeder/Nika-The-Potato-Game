@@ -149,7 +149,6 @@
     updatePickedLabels();
     loadTileset(state.tileset.url);
     zoomLabel.textContent = `x${state.zoom}`;
-    scriptKind.value = state.scriptBrush.kind;
     updateUndoRedoButtons();
     initOverlayUI();
   }
