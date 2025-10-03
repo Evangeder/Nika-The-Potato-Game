@@ -95,6 +95,11 @@
   const scriptTools = $('#scriptTools');
   const scriptProps = $('#scriptProps');
 
+  // Overlay refs
+  const scriptOverlay = $('#scriptOverlay');
+  const scriptOverlayProps = $('#scriptOverlayProps');
+  const scriptOverlaySave = $('#scriptOverlaySave');
+  const scriptOverlayClose = $('#scriptOverlayClose');
   // Project UI
   const mapsList = $('#mapsList');
   const newMapBtn = $('#newMapBtn');
@@ -222,6 +227,34 @@
       renderPickedPreview();
       // refresh overlay sprite thumbnails if opened
       if (state.ovOpen) buildSpriteThumbs();
+    });
+
+    newMapBtn?.addEventListener('click', newMap);
+    delMapBtn?.addEventListener('click', deleteMap);
+    renameMapBtn?.addEventListener('click', renameMap);
+    saveProjectBtn?.addEventListener('click', saveProject);
+    loadProjectInput?.addEventListener('change', (e)=> loadProject(e.target.files[0]));
+    mapNameInput?.addEventListener('change', () => {
+      const cm = currentMap(); if (!cm) return;
+      cm.name = mapNameInput.value || cm.name || cm.id || 'map';
+      cm.id = cm.name;
+      refreshMapsList();
+    });
+    openScriptEditorBtn?.addEventListener('click', () => {
+      if (!state.selectedScript) { alert('Kliknij obiekt na warstwie Scripts, aby go edytować.'); return; }
+      const s = findScriptAt(state.selectedScript.x, state.selectedScript.y);
+      if (!s) return;
+      scriptOverlayProps.value = JSON.stringify(s.props || {}, null, 2);
+      scriptOverlay.style.display = 'flex';
+    });
+    scriptOverlayClose?.addEventListener('click', () => { scriptOverlay.style.display = 'none'; });
+    scriptOverlaySave?.addEventListener('click', () => {
+      try{
+        const p = JSON.parse(scriptOverlayProps.value);
+        const s = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
+        if (s){ s.props = p; render(); }
+        scriptOverlay.style.display = 'none';
+      }catch{ alert('Błędny JSON'); }
     });
 
     // Size / zoom
@@ -428,7 +461,7 @@
       layers: {},
       scripts: deepClone(state.scripts)
     };
-    for (const L of VISUAL_LAYERS){ data.layers[L] = deepClone(state.layers[L]); }
+    for (const L of ['ground','details','details2','ceiling','ceiling2']) data.layers[L] = deepClone(state.layers[L]);
     return data;
   }
 
@@ -437,15 +470,11 @@
     state.tileSize = m.tileSize || state.tileSize; tileSizeInput.value = state.tileSize;
     await loadTileset(m.tileset || state.tileset.url);
     resizeMap(m.width|0, m.height|0, false);
-    for (const L of VISUAL_LAYERS){
+    for (const L of ['ground','details','details2','ceiling','ceiling2']){
       if (m.layers && m.layers[L]) state.layers[L] = deepClone(m.layers[L]);
       else state.layers[L] = allocateLayerGrid(state.mapW, state.mapH);
     }
-    state.scripts = Array.isArray(m.scripts) ? deepClone(m.scripts).map(s => ({
-      kind: 'script',
-      x: s.x|0, y: s.y|0,
-      props: s.props || {}
-    })) : [];
+    state.scripts = Array.isArray(m.scripts) ? m.scripts.map(s=>({ kind:'script', x:s.x|0, y:s.y|0, props: s.props||{} })) : [];
     render();
   }
 
@@ -454,7 +483,6 @@
       state.project.maps.push(captureCurrentMap());
       state.project.current = 0;
     } else {
-      // zsynchronizuj bieżącą mapę z UI nazwy
       mapNameInput.value = currentMap().name || currentMap().id || 'map';
     }
   }
@@ -477,7 +505,6 @@
 
   async function selectMap(idx){
     if (idx<0 || idx>=state.project.maps.length) return;
-    // zapisz bieżącą
     state.project.maps[state.project.current] = captureCurrentMap();
     state.project.current = idx;
     await applyMapObject(state.project.maps[idx]);
@@ -485,33 +512,27 @@
   }
 
   function newMap(){
-    const base = 'map';
-    let n = 1;
-    const names = new Set(state.project.maps.map(m => m.name || m.id));
+    const base='map'; let n=1; const names = new Set(state.project.maps.map(m=>m.name||m.id));
     while (names.has(`${base}_${n}`)) n++;
     const m = {
-      id: `${base}_${n}`, name: `${base}_${n}`,
-      tileset: state.tileset.url,
-      tileSize: state.tileSize,
-      width: 32, height: 18,
-      layers: {},
-      scripts: []
+      id:`${base}_${n}`, name:`${base}_${n}`,
+      tileset: state.tileset.url, tileSize: state.tileSize,
+      width:32, height:18, layers:{}, scripts:[]
     };
-    for (const L of VISUAL_LAYERS){ m.layers[L] = allocateLayerGrid(m.width, m.height); }
-    // zapisz bieżącą i dodaj nową
+    for (const L of ['ground','details','details2','ceiling','ceiling2']) m.layers[L] = allocateLayerGrid(m.width,m.height);
     state.project.maps[state.project.current] = captureCurrentMap();
     state.project.maps.push(m);
-    state.project.current = state.project.maps.length - 1;
+    state.project.current = state.project.maps.length-1;
     applyMapObject(m);
     refreshMapsList();
   }
 
   function deleteMap(){
-    if (state.project.maps.length <= 1){ alert('Nie można usunąć ostatniej mapy'); return; }
+    if (state.project.maps.length<=1){ alert('Nie można usunąć ostatniej mapy'); return; }
     const curr = currentMap();
-    if (!confirm(`Are you really sure about that?\nDelete map '${curr.name || curr.id}'?`)) return;
+    if (!confirm(`Are you really sure about that?\nDelete map '${curr.name||curr.id}'?`)) return;
     state.project.maps.splice(state.project.current, 1);
-    state.project.current = Math.max(0, state.project.current - 1);
+    state.project.current = Math.max(0, state.project.current-1);
     applyMapObject(currentMap());
     refreshMapsList();
   }
@@ -526,17 +547,11 @@
   }
 
   function saveProject(){
-    // zaktualizuj bieżącą mapę
     state.project.maps[state.project.current] = captureCurrentMap();
-    const data = {
-      projectVersion: 1,
-      variables: state.project.variables || [],
-      maps: state.project.maps
-    };
+    const data = { projectVersion:1, variables: state.project.variables||[], maps: state.project.maps };
     const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'project.json';
+    a.href = URL.createObjectURL(blob); a.download = 'project.json';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
   }
@@ -553,10 +568,8 @@
         await applyMapObject(state.project.maps[0]);
         refreshMapsList();
       } else {
-        // backward: pojedyncza mapa -> owiń jako projekt
         const single = normalizeMapObject(obj);
-        state.project.maps = [single];
-        state.project.variables = Array.isArray(obj.variables) ? obj.variables : [];
+        state.project.maps = [single]; state.project.variables = Array.isArray(obj.variables)?obj.variables:[];
         state.project.current = 0;
         await applyMapObject(single);
         refreshMapsList();
@@ -579,7 +592,7 @@
       layers: {},
       scripts: Array.isArray(obj.scripts) ? obj.scripts.map(s=>({ kind:'script', x:s.x|0, y:s.y|0, props: s.props||{} })) : []
     };
-    for (const L of VISUAL_LAYERS){
+    for (const L of ['ground','details','details2','ceiling','ceiling2']){
       if (obj.layers && obj.layers[L]) m.layers[L] = deepClone(obj.layers[L]);
       else m.layers[L] = allocateLayerGrid(m.width, m.height);
     }

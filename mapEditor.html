@@ -31,7 +31,7 @@
       <div id="pickerScroll">
         <canvas id="pickerCanvas"></canvas>
       </div>
-      <div class="hint">LMB: draw, RMB: delete. ALT: probe. <b>Scripts</b>: LMB add/select • Delete: remove • drag to move • ALT+click: pipette.</div>
+      <div class="hint">LMB: draw, RMB: select. ALT: probe. Layer <b>Scripts</b>: LMB dodaje/zaznacza, <b>Delete usuwa</b>, dwuklik otwiera edytor.</div>
     </div>
 
     <h3>Project / Maps</h3>
@@ -43,7 +43,9 @@
       </div>
       <div class="ctrl">
         <button id="saveProjectBtn" class="primary">SAVE PROJECT</button>
-        <input id="loadProjectInput" type="file" accept="application/json" />
+        <label class="btn btn--ghost" style="padding:0;">
+          <input id="loadProjectInput" type="file" accept="application/json" />
+        </label>
       </div>
       <div class="ctrl" style="display:block; max-height:220px; overflow:auto;">
         <ul id="mapsList" style="list-style:none; margin:0; padding:0; display:grid; gap:6px;"></ul>
@@ -125,8 +127,8 @@
       <strong>Scripts:</strong>
       <label for="scriptProps">Props (JSON)</label>
       <input id="scriptProps" type="text" placeholder='{"note":"..."}' style="min-width:320px" />
-      <button id="openScriptEditorBtn" class="ghost">Open Script Editor</button>
-      <span class="hint">LPM: dodaj/zaznacz • ALT+klik: pipeta • Delete: usuń • Przeciągnij, aby przenieść • Dwuklik: edytor.</span>
+      <button id="openScriptEditorBtn" class="ghost">Open editor</button>
+      <span class="hint">LPM: dodaj/zaznacz • ALT+klik: pipeta • <b>Delete</b>: usuń • Dwuklik: edytor.</span>
     </div>
   </header>
 
@@ -307,5 +309,23 @@
 
   <!-- Engine -->
   <script src="./engine/editor.js"></script>
+
+  <!-- ================= Script Overlay (minimal) ================= -->
+  <div id="scriptOverlay" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:1000;">
+    <div style="width:min(720px,95vw); background:#121620; border:1px solid #26314c; border-radius:12px; padding:12px; display:grid; gap:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <strong>Script Editor</strong>
+        <div>
+          <button id="scriptOverlaySave" class="primary">Save</button>
+          <button id="scriptOverlayClose" class="ghost">Close</button>
+        </div>
+      </div>
+      <div class="grid" style="gap:6px;">
+        <label class="mini">Props (JSON)</label>
+        <textarea id="scriptOverlayProps" rows="10" style="width:100%;"></textarea>
+        <div class="hint">Edytujesz zaznaczony obiekt z warstwy <b>Scripts</b>.</div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
