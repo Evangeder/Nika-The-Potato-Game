@@ -922,6 +922,18 @@
     applyPaintAt(state.activeLayer, tx, ty, erase ? null : makeCurrentTile());
     render();
   }
+  
+  // === Tile utils (needed by paint/undo) ===
+  function tilesEqual(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.r === b.r && a.g === b.g && a.b === b.b && a.a === b.a;
+  }
+
+  function cloneTile(t) {
+    return t ? { r: t.r|0, g: t.g|0, b: t.b|0, a: t.a|0 } : null;
+  }
+
   function applyPaintAt(layer, x, y, newTile){
     if (x<0||y<0||x>=state.mapW||y>=state.mapH) return;
     const before = getTile(layer, x, y);
