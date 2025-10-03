@@ -95,11 +95,6 @@
   const scriptTools = $('#scriptTools');
   const scriptProps = $('#scriptProps');
 
-  // Overlay refs
-  const scriptOverlay = $('#scriptOverlay');
-  const scriptOverlayProps = $('#scriptOverlayProps');
-  const scriptOverlaySave = $('#scriptOverlaySave');
-  const scriptOverlayClose = $('#scriptOverlayClose');
   // Project UI
   const mapsList = $('#mapsList');
   const newMapBtn = $('#newMapBtn');
@@ -110,7 +105,7 @@
 
   const openScriptEditorBtn = $('#openScriptEditorBtn');
 
-  // Overlay (RPGMaker-like)
+  // Overlay (RPGMaker-like) — referencje mogą być null, jeśli nie używasz overlayu
   const ov = $('#scriptOverlay');
   const ovSave = $('#scriptOvSave');
   const ovClose = $('#scriptOvClose');
@@ -139,7 +134,7 @@
   const varsImportInput = $('#varsImportInput');
   const varsTableBody = $('#varsTableBody');
 
-  // Toast / modal (optional)
+  // Toast / modal (opcjonalnie)
   const toast = $('#toast');
 
   // ==========/ Init ==========
@@ -159,7 +154,7 @@
 
     zoomLabel.textContent = `x${state.zoom}`;
     updateUndoRedoButtons();
-    initOverlayUI();
+    initOverlayUI(); // bezpieczne nawet, gdy overlayu brak (guardy w funkcji)
   }
 
   // ==========/ UI wiring ==========
@@ -185,7 +180,7 @@
           if (pencil) pencil.checked = true;
         }
         fillWrap.style.display = (state.tool==='rect' || state.tool==='circle') && !scriptsMode ? '' : 'none';
-        scriptTools.style.display = scriptsMode ? '' : 'none';
+        scriptTools && (scriptTools.style.display = scriptsMode ? '' : 'none');
         state.preview.active=false;
         render();
       });
@@ -229,6 +224,7 @@
       if (state.ovOpen) buildSpriteThumbs();
     });
 
+    // Project
     newMapBtn?.addEventListener('click', newMap);
     delMapBtn?.addEventListener('click', deleteMap);
     renameMapBtn?.addEventListener('click', renameMap);
@@ -239,22 +235,6 @@
       cm.name = mapNameInput.value || cm.name || cm.id || 'map';
       cm.id = cm.name;
       refreshMapsList();
-    });
-    openScriptEditorBtn?.addEventListener('click', () => {
-      if (!state.selectedScript) { alert('Kliknij obiekt na warstwie Scripts, aby go edytować.'); return; }
-      const s = findScriptAt(state.selectedScript.x, state.selectedScript.y);
-      if (!s) return;
-      scriptOverlayProps.value = JSON.stringify(s.props || {}, null, 2);
-      scriptOverlay.style.display = 'flex';
-    });
-    scriptOverlayClose?.addEventListener('click', () => { scriptOverlay.style.display = 'none'; });
-    scriptOverlaySave?.addEventListener('click', () => {
-      try{
-        const p = JSON.parse(scriptOverlayProps.value);
-        const s = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
-        if (s){ s.props = p; render(); }
-        scriptOverlay.style.display = 'none';
-      }catch{ alert('Błędny JSON'); }
     });
 
     // Size / zoom
@@ -282,7 +262,7 @@
     });
 
     // Scripts toolbar
-    scriptProps.addEventListener('change', () => {
+    scriptProps && scriptProps.addEventListener('change', () => {
       const p = tryParseJSON(scriptProps.value);
       if (p!==undefined) state.scriptBrush.props = p;
     });
@@ -295,7 +275,7 @@
       openOverlayFor(state.selectedScript.x, state.selectedScript.y);
     });
 
-    // Save / Load / Clear
+    // Save / Load / Clear (pojedyncza mapa)
     saveJsonBtn.addEventListener('click', saveJSON);
     loadJsonInput.addEventListener('change', (e)=> loadJSON(e.target.files[0]));
     clearLayerBtn.addEventListener('click', () => {
@@ -325,28 +305,13 @@
         if (e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
         if ((e.key.toLowerCase()==='y') || (e.key.toLowerCase()==='z' && e.shiftKey)){ e.preventDefault(); redo(); return; }
       }
+      // Delete on Scripts — usuń zaznaczony obiekt
       if (e.key === 'Delete' && state.activeLayer==='scripts'){
         const sel = state.selectedScript && findScriptAt(state.selectedScript.x, state.selectedScript.y);
         if (!sel) return;
         beginAction({ kind:'script-remove', layer:'scripts' });
         recordScriptChange(sel.x, sel.y, { kind: sel.kind, x: sel.x, y: sel.y, props: deepClone(sel.props||{}) }, null);
         removeScriptAt(sel.x, sel.y);
-        state.selectedScript = null;
-        endAction();
-        render();
-      }
-    });
-
-    // Kasowanie obiektu Script tylko przez [Delete]
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Delete' && state.activeLayer === 'scripts'){
-        if (!state.selectedScript) return;
-        const {x,y} = state.selectedScript;
-        const before = findScriptAt(x,y);
-        if (!before) return;
-        beginAction({ kind:'script-remove', layer:'scripts' });
-        recordScriptChange(x,y, before, null);
-        removeScriptAt(x,y);
         state.selectedScript = null;
         endAction();
         render();
@@ -494,7 +459,7 @@
       const li = document.createElement('li');
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'ghost';
+      btn.className = 'ghost' + (i===state.project.current ? ' is-active' : '');
       btn.style.cssText = 'width:100%; text-align:left;';
       btn.textContent = `${i===state.project.current ? '▶ ' : ''}${m.name || m.id}`;
       btn.addEventListener('click', () => selectMap(i));
@@ -599,19 +564,6 @@
     return m;
   }
 
-  // Hooki UI projektu
-  newMapBtn?.addEventListener('click', newMap);
-  delMapBtn?.addEventListener('click', deleteMap);
-  renameMapBtn?.addEventListener('click', renameMap);
-  saveProjectBtn?.addEventListener('click', saveProject);
-  loadProjectInput?.addEventListener('change', (e)=> loadProject(e.target.files[0]));
-  mapNameInput?.addEventListener('change', () => {
-    const cm = currentMap(); if (!cm) return;
-    cm.name = mapNameInput.value || cm.name || cm.id || 'map';
-    cm.id = cm.name;
-    refreshMapsList();
-  });
-
   // ==========/ Map data ==========
   function allocateLayerGrid(W,H){
     const g = new Array(H);
@@ -706,15 +658,11 @@
       mapCtx.textAlign = 'center'; mapCtx.textBaseline = 'middle';
       const label = (s.kind||'').slice(0,1).toUpperCase();
       mapCtx.fillText(label, x+ts/2, y+ts/2);
+
+      // zaznaczenie
       if (state.selectedScript && state.selectedScript.x===s.x && state.selectedScript.y===s.y){
         mapCtx.strokeStyle = 'rgba(80,180,255,0.9)';
         mapCtx.lineWidth = 2;
-        mapCtx.strokeRect(x+1.5, y+1.5, ts-3, ts-3);
-      }
-
-      // selection ring
-      if (state.selectedScript && state.selectedScript.x===s.x && state.selectedScript.y===s.y){
-        mapCtx.strokeStyle = 'rgba(80,180,255,0.9)'; mapCtx.lineWidth = 2;
         mapCtx.strokeRect(x+1.5, y+1.5, ts-3, ts-3);
       }
     }
@@ -833,7 +781,7 @@
         const s = findScriptAt(tx,ty);
         if (s){
           state.scriptBrush.kind = 'script';
-          scriptProps.value = JSON.stringify(s.props||{});
+          scriptProps && (scriptProps.value = JSON.stringify(s.props||{}));
           state.scriptBrush.props = s.props||{};
           state.selectedScript = {x:s.x, y:s.y};
           render();
@@ -857,7 +805,7 @@
         beginAction({ kind:'script-move', layer:'scripts' });
         render();
       } else {
-        const parsed = tryParseJSON(scriptProps.value);
+        const parsed = tryParseJSON(scriptProps?.value);
         if (parsed!==undefined) state.scriptBrush.props = parsed;
         const after = { kind:'script', x:tx, y:ty, props: deepClone(state.scriptBrush.props) };
         beginAction({ kind:'script-add', layer:'scripts' });
@@ -920,7 +868,7 @@
     const {tx,ty} = tileFromEvent(e);
     let s = findScriptAt(tx,ty);
     if (!s){
-      const parsed = tryParseJSON(scriptProps.value);
+      const parsed = tryParseJSON(scriptProps?.value);
       if (parsed!==undefined) state.scriptBrush.props = parsed;
       s = { kind:'script', x:tx, y:ty, props: deepClone(state.scriptBrush.props) };
       beginAction({ kind:'script-add', layer:'scripts' });
@@ -1012,15 +960,10 @@
   // ==========/ Pointer helpers ==========
   function pointerInCanvas(evt, canvas){
     const rect = canvas.getBoundingClientRect();
-    // współrzędne w pikselach canvasu (po uwzględnieniu scrolla/pozycji w dokumencie)
-    return {
-      x: (evt.clientX - rect.left),
-      y: (evt.clientY - rect.top)
-    };
+    // współrzędne w pikselach canvasu (po uwzględnieniu zoomu, bo width/height są już przeskalowane)
+    return { x: (evt.clientX - rect.left), y: (evt.clientY - rect.top) };
   }
-
   function tileFromEvent(evt){
-    // pozycja kursora względem canvasu
     const p = pointerInCanvas(evt, mapCanvas);
     // rozmiar widocznego tile’a = tileSize * zoom (canvas ma width/height już przeskalowane)
     const tsz = state.tileSize * state.zoom;
@@ -1028,7 +971,6 @@
     const ty = clamp(Math.floor(p.y / tsz), 0, state.mapH - 1);
     return { tx, ty };
   }
-
 
   // ==========/ Shapes ==========
   function updatePreviewCells(){
@@ -1055,7 +997,13 @@
   function lineCells(x0,y0,x1,y1){
     const out=[]; let dx=Math.abs(x1-x0), dy=Math.abs(y1-y0);
     let sx = x0<x1?1:-1, sy = y0<y1?1:-1; let err = dx-dy; let x=x0,y=y0;
-    while(true){ out.push({x,y}); if (x===x1 && y===y1) break; const e2 = 2*err; if (e2> -dy){ err-=dy; x+=sx; } if (e2 < dx){ err+=dx; y+=sy; } }
+    while(true){
+      out.push({x,y});
+      if (x===x1 && y===y1) break;
+      const e2 = 2*err;
+      if (e2> -dy){ err-=dy; x+=sx; }
+      if (e2 < dx){ err+=dx; y+=sy; }
+    }
     return clampCells(out);
   }
   function ellipseCellsBBox(x0,y0,x1,y1, filled){
@@ -1084,757 +1032,6 @@
     return unique;
   }
 
-  // ==========/ Save / Load JSON ==========
-  function saveJSON(){
-    const data = {
-      name: (mapNameInput.value||'mapa').replace(/\s+/g,'_'),
-      tileset: state.tileset.url,
-      tileSize: state.tileSize,
-      width: state.mapW, height: state.mapH,
-      layers: {},
-      scripts: state.scripts
-    };
-    for (const L of VISUAL_LAYERS){ data.layers[L] = state.layers[L]; }
-    const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${data.name}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
-  }
-  async function loadJSON(file){
-    if (!file) return;
-    const text = await file.text();
-    let obj; try { obj = JSON.parse(text); } catch(e){ alert('Błędny JSON'); return; }
-    const W = obj.width|0, H = obj.height|0; if (!W||!H){ alert('Brak width/height w JSON'); return; }
-    state.tileSize = obj.tileSize|0 || state.tileSize; tileSizeInput.value = state.tileSize;
-    if (obj.tileset){ await loadTileset(obj.tileset); tilesetSelect.value = obj.tileset; }
-    resizeMap(W,H,false);
-    for (const L of VISUAL_LAYERS){
-      if (obj.layers && obj.layers[L]){
-        for (let y=0;y<Math.min(H, obj.layers[L].length);y++){
-          for (let x=0;x<Math.min(W, obj.layers[L][y].length);x++){
-            const t = obj.layers[L][y][x];
-            state.layers[L][y][x] = t && typeof t.r==='number' ? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null;
-          }
-        }
-      }
-    }
-    state.scripts = Array.isArray(obj.scripts) ? obj.scripts.map(s=>({kind:String(s.kind||'note'), x:s.x|0, y:s.y|0, props: s.props||{}})) : [];
-    mapNameInput.value = (obj.name||'mapa');
-    // clear history after load
-    state.history.undo = []; state.history.redo = []; state.history.current=null; updateUndoRedoButtons();
-    render();
-  }
-
-  // ==========/ Overlay (Script Editor) ==========
-  function initOverlayUI(){
-    // Sprite UI
-    spriteUseToggle?.addEventListener('click', () => {
-      const on = spriteUseToggle.classList.toggle('is-on');
-      spriteUseToggle.setAttribute('aria-checked', String(on));
-      renderSpritePreview();
-    });
-    spriteUseToggle?.addEventListener('keydown', (e) => {
-      if (e.key===' ' || e.key==='Enter'){ e.preventDefault(); spriteUseToggle.click(); }
-    });
-
-    // Sprite sheets = use TILESETS for now
-    spriteSheetSelect.innerHTML = '';
-    TILESETS.forEach((url, i) => {
-      const opt = document.createElement('option');
-      opt.value = url; opt.textContent = url.split('/').pop() || url;
-      if (i===0) opt.selected = true;
-      spriteSheetSelect.appendChild(opt);
-    });
-    spriteSheetSelect.addEventListener('change', () => {
-      renderSpritePreview();
-      buildSpriteThumbs();
-    });
-    [spriteFrameX, spriteFrameY, spriteAnimSpeed, spriteDir, spriteLoop].forEach(el => {
-      el?.addEventListener('change', renderSpritePreview);
-    });
-
-    // Actions UI
-    actionAddBtn?.addEventListener('click', () => {
-      const t = actionAddSel.value;
-      addActionToCurrent(makeAction(t));
-      rebuildFlow();
-    });
-    actionCollapseAll?.addEventListener('click', () => toggleAllItems(true));
-    actionExpandAll?.addEventListener('click', () => toggleAllItems(false));
-    actionClear?.addEventListener('click', () => {
-      if (!confirm('Are you really sure about that?\nThis will clear all actions.')) return;
-      const s = getOverlayTarget(); if (!s) return;
-      s.props = s.props || {};
-      s.props.actions = [];
-      rebuildFlow();
-    });
-
-    // Variables UI
-    varsSearch?.addEventListener('input', () => { state.varsFilter.q = varsSearch.value.trim().toLowerCase(); renderVarsTable(); });
-    varsTypeFilter?.addEventListener('change', () => { state.varsFilter.type = varsTypeFilter.value; renderVarsTable(); });
-    varsResetFilter?.addEventListener('click', () => { state.varsFilter.q=''; state.varsFilter.type=''; varsSearch.value=''; varsTypeFilter.value=''; renderVarsTable(); });
-    varsAddBtn?.addEventListener('click', () => { appendVariable(); renderVarsTable(); });
-    varsExportBtn?.addEventListener('click', exportVariablesJSON);
-    varsImportInput?.addEventListener('change', importVariablesJSON);
-
-    ovSave?.addEventListener('click', saveOverlayBackToScript);
-    ovClose?.addEventListener('click', closeOverlay);
-  }
-
-  function openOverlayFor(x,y){
-    const s = findScriptAt(x,y);
-    if (!s){ notify('Brak obiektu scripts na tej kratce.'); return; }
-    state.selectedScript = {x,y};
-    ensureDefaultScriptProps(s);
-    // load variables once
-    if (!state.varsLoaded) loadVariables();
-
-    // Load sprite settings
-    const sp = s.props.sprite || { use:false, sheet: TILESETS[0], fx:0, fy:0, speed:8, dir:'down', loop:true };
-    spriteUseToggle.classList.toggle('is-on', !!sp.use);
-    spriteUseToggle.setAttribute('aria-checked', String(!!sp.use));
-    spriteSheetSelect.value = sp.sheet || TILESETS[0];
-    spriteFrameX.value = sp.fx|0; spriteFrameY.value = sp.fy|0;
-    spriteAnimSpeed.value = sp.speed|0 || 8;
-    spriteDir.value = sp.dir || 'down';
-    spriteLoop.checked = !!sp.loop;
-
-    buildSpriteThumbs();
-    renderSpritePreview();
-
-    // Build actions list
-    rebuildFlow();
-
-    ov.style.display = 'flex';
-    state.ovOpen = true;
-  }
-  function closeOverlay(){
-    ov.style.display = 'none';
-    state.ovOpen = false;
-  }
-  function saveOverlayBackToScript(){
-    const s = getOverlayTarget(); if (!s) return;
-    s.props = s.props || {};
-    // sprite
-    s.props.sprite = {
-      use: spriteUseToggle.classList.contains('is-on'),
-      sheet: spriteSheetSelect.value,
-      fx: parseInt(spriteFrameX.value,10) || 0,
-      fy: parseInt(spriteFrameY.value,10) || 0,
-      speed: parseInt(spriteAnimSpeed.value,10) || 0,
-      dir: spriteDir.value,
-      loop: !!spriteLoop.checked
-    };
-    // actions -> already mutated while editing
-    notify('Zapisano ustawienia skryptu');
-    closeOverlay();
-  }
-  function getOverlayTarget(){
-    if (!state.selectedScript) return null;
-    return findScriptAt(state.selectedScript.x, state.selectedScript.y);
-  }
-  function ensureDefaultScriptProps(s){
-    s.props = s.props || {};
-    if (!Array.isArray(s.props.actions)) s.props.actions = [];
-    if (!s.props.sprite) s.props.sprite = { use:false, sheet: TILESETS[0], fx:0, fy:0, speed:8, dir:'down', loop:true };
-  }
-
-  // --- Sprite preview / thumbs ---
-  async function renderSpritePreview(){
-    const ctx = spritePreview.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0,0,spritePreview.width, spritePreview.height);
-
-    const use = spriteUseToggle.classList.contains('is-on');
-    if (!use) return;
-
-    const url = spriteSheetSelect.value || TILESETS[0];
-    const img = await loadImageCached(url);
-    const ts = state.tileSize;
-    const fx = clamp(parseInt(spriteFrameX.value,10)||0, 0, Math.floor(img.width/ts)-1);
-    const fy = clamp(parseInt(spriteFrameY.value,10)||0, 0, Math.floor(img.height/ts)-1);
-    spriteFrameX.value = fx; spriteFrameY.value = fy;
-
-    const sx = fx*ts, sy = fy*ts;
-    const scale = Math.floor(Math.min(spritePreview.width, spritePreview.height) / (ts*1.25));
-    const dw = ts*scale, dh = ts*scale;
-
-    ctx.save();
-    ctx.translate((spritePreview.width - dw)/2, (spritePreview.height - dh)/2);
-    ctx.drawImage(img, sx, sy, ts, ts, 0, 0, dw, dh);
-    ctx.restore();
-  }
-  async function buildSpriteThumbs(){
-    spriteGrid.innerHTML = '';
-    const url = spriteSheetSelect.value || TILESETS[0];
-    const img = await loadImageCached(url);
-    const ts = state.tileSize;
-    const cols = Math.floor(img.width/ts);
-    const rows = Math.floor(img.height/ts);
-    // pokaż max 6x5 miniaturek od (0,0)
-    const maxCols = Math.min(cols, 6);
-    const maxRows = Math.min(rows, 5);
-
-    for (let y=0;y<maxRows;y++){
-      const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.gap = '6px';
-      for (let x=0;x<maxCols;x++){
-        const c = document.createElement('canvas');
-        c.width = 48; c.height = 48; c.className = 'thumb';
-        const cctx = c.getContext('2d'); cctx.imageSmoothingEnabled = false;
-        cctx.drawImage(img, x*ts, y*ts, ts, ts, 0, 0, 48, 48);
-        c.title = `(${x},${y})`;
-        c.addEventListener('click', () => {
-          spriteFrameX.value = x; spriteFrameY.value = y; renderSpritePreview();
-          $$('.thumb', spriteGrid).forEach(el => el.classList.remove('is-active'));
-          c.classList.add('is-active');
-        });
-        if ((parseInt(spriteFrameX.value,10)===x) && (parseInt(spriteFrameY.value,10)===y)) c.classList.add('is-active');
-        row.appendChild(c);
-      }
-      spriteGrid.appendChild(row);
-    }
-  }
-  async function loadImageCached(url){
-    if (state.ovSpriteImgCache.has(url)) return state.ovSpriteImgCache.get(url);
-    const img = new Image(); img.crossOrigin = 'anonymous'; img.src = url; await img.decode();
-    state.ovSpriteImgCache.set(url, img); return img;
-  }
-
-  // --- Actions flow ---
-  function rebuildFlow(){
-    flowList.innerHTML = '';
-    const s = getOverlayTarget(); if (!s) return;
-    const actions = s.props.actions || [];
-    actions.forEach((act, i) => {
-      flowList.appendChild(renderActionItem(act, i, actions));
-    });
-  }
- 
-    // ========== Actions rendering ==========
-
-  function renderActionItem(act, i, list){
-    const tpl = document.getElementById('tplActionItem');
-    const root = tpl.content.firstElementChild.cloneNode(true);
-
-    const head = root.querySelector('.flow__head');
-    const body = root.querySelector('.flow__body');
-    const badge = root.querySelector('[data-step]');
-    const labelEl = root.querySelector('.label');
-
-    root.dataset.index = String(i);
-    badge.textContent = String(i+1);
-
-    // Style by type
-    const typeClass = {
-      move: 'is-move',
-      dialog: 'is-dialog',
-      sleep: 'is-sleep',
-      battle: 'is-battle',
-      jump: 'is-jump',
-      inventory: 'is-inventory'
-    }[act.type] || '';
-    if (typeClass) root.classList.add(typeClass);
-
-    // Title/label
-    labelEl.textContent = actionTitle(act);
-
-    // Controls
-    const btnCollapse = root.querySelector('.btn-collapse');
-    const btnDup = root.querySelector('.btn-dup');
-    const btnDel = root.querySelector('.btn-del');
-
-    btnCollapse.addEventListener('click', () => {
-      root.classList.toggle('is-collapsed');
-    });
-    btnDup.addEventListener('click', () => {
-      duplicateActionAt(i);
-    });
-    btnDel.addEventListener('click', () => {
-      removeActionAt(i);
-    });
-
-    // Drag & drop reordering
-    const dragHandle = root.querySelector('.dragHandle');
-    root.draggable = true;
-    dragHandle.addEventListener('mousedown', () => { root.classList.add('is-dragging'); });
-    root.addEventListener('dragstart', (e) => {
-      root.classList.add('is-dragging');
-      e.dataTransfer.setData('text/plain', String(i));
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    root.addEventListener('dragend', () => root.classList.remove('is-dragging'));
-    root.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-    });
-    root.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
-      const to = i;
-      if (!Number.isNaN(from) && from !== to){
-        moveAction(from, to);
-      }
-    });
-
-    // Body editor
-    buildActionEditor(body, act, i);
-
-    return root;
-  }
-
-  function actionTitle(act){
-    switch(act.type){
-      case 'move': return 'Ruch obiektu';
-      case 'dialog': return 'Dialogue box';
-      case 'sleep': return 'Sleep (oczekiwanie)';
-      case 'battle': return 'Wejście w walkę';
-      case 'jump': return 'Animacja podskoku';
-      case 'inventory': return 'Ekwipunek: add/remove';
-      default: return 'Action';
-    }
-  }
-
-  function buildActionEditor(container, act, idx){
-    container.innerHTML = '';
-    const appendRow = (label, inputEl, note) => {
-      const row = document.createElement('div');
-      row.className = 'row';
-      const l = document.createElement('label');
-      l.textContent = label;
-      row.appendChild(l);
-      const cell = document.createElement('div');
-      cell.appendChild(inputEl);
-      if (note){
-        const n = document.createElement('div');
-        n.className = 'note';
-        n.textContent = note;
-        cell.appendChild(n);
-      }
-      row.appendChild(cell);
-      container.appendChild(row);
-      return {row, cell};
-    };
-
-    // Small helpers
-    const num = (v, step='1') => {
-      const i = document.createElement('input');
-      i.type = 'number';
-      i.step = step;
-      i.value = String(v|0);
-      return i;
-    };
-    const numf = (v) => {
-      const i = document.createElement('input');
-      i.type = 'number';
-      i.step = '0.01';
-      i.value = String(Number(v || 0));
-      return i;
-    };
-    const txt = (v, placeholder='') => {
-      const i = document.createElement('input');
-      i.type = 'text';
-      i.value = v ?? '';
-      if (placeholder) i.placeholder = placeholder;
-      return i;
-    };
-    const area = (v, placeholder='') => {
-      const t = document.createElement('textarea');
-      t.value = v ?? '';
-      if (placeholder) t.placeholder = placeholder;
-      t.rows = 3;
-      return t;
-    };
-    const chk = (v) => {
-      const i = document.createElement('input');
-      i.type = 'checkbox';
-      i.checked = !!v;
-      return i;
-    };
-    const sel = (options, v) => {
-      const s = document.createElement('select');
-      options.forEach(o => {
-        const opt = document.createElement('option');
-        if (typeof o === 'string'){ opt.value = o; opt.textContent = o; }
-        else { opt.value = o.value; opt.textContent = o.label; }
-        if (String(opt.value) === String(v)) opt.selected = true;
-        s.appendChild(opt);
-      });
-      return s;
-    };
-
-    // Per-action editors
-    switch(act.type){
-      case 'move': {
-        act.dx ??= 0; act.dy ??= 0; act.speed ??= 4;
-        const inDx = num(act.dx);  appendRow('dx', inDx);
-        const inDy = num(act.dy);  appendRow('dy', inDy);
-        const inSp = num(act.speed); appendRow('speed', inSp, 'kafli / sekundę (orientacyjnie)');
-        inDx.addEventListener('change', () => act.dx = parseInt(inDx.value,10) || 0);
-        inDy.addEventListener('change', () => act.dy = parseInt(inDy.value,10) || 0);
-        inSp.addEventListener('change', () => act.speed = parseInt(inSp.value,10) || 0);
-        break;
-      }
-      case 'dialog': {
-        act.text ??= '';
-        act.speaker ??= '';
-        const inSp = txt(act.speaker, 'nazwa mówiącego (opcjonalnie)');
-        const inTx = area(act.text, 'Treść dialogu…');
-        appendRow('speaker', inSp);
-        appendRow('text', inTx);
-        inSp.addEventListener('input', () => act.speaker = inSp.value);
-        inTx.addEventListener('input', () => act.text = inTx.value);
-        break;
-      }
-      case 'sleep': {
-        act.ms ??= 500;
-        const inMs = num(act.ms);
-        const sk = chk(!!act.skippable);
-        appendRow('ms', inMs);
-        appendRow('skippable', sk);
-        inMs.addEventListener('change', () => act.ms = parseInt(inMs.value,10) || 0);
-        sk.addEventListener('change', () => act.skippable = !!sk.checked);
-        break;
-      }
-      case 'battle': {
-        // TODO: parametryzacja walki
-        act.encounter ??= '';
-        const inId = txt(act.encounter, 'encounterId //todo');
-        appendRow('encounterId', inId, '//todo: parametryzacja walki');
-        inId.addEventListener('input', () => act.encounter = inId.value);
-        break;
-      }
-      case 'jump': {
-        act.height ??= 1;
-        act.dx ??= 0; act.dy ??= 0;
-        act.duration ??= 300;
-        const inH = numf(act.height);
-        const inDx = num(act.dx);
-        const inDy = num(act.dy);
-        const inDur = num(act.duration);
-        appendRow('height', inH);
-        appendRow('dx', inDx);
-        appendRow('dy', inDy);
-        appendRow('duration', inDur, 'ms');
-        inH.addEventListener('change', () => act.height = Number(inH.value) || 0);
-        inDx.addEventListener('change', () => act.dx = parseInt(inDx.value,10) || 0);
-        inDy.addEventListener('change', () => act.dy = parseInt(inDy.value,10) || 0);
-        inDur.addEventListener('change', () => act.duration = parseInt(inDur.value,10) || 0);
-        break;
-      }
-      case 'inventory': {
-        // TODO: parametryzacja ekwipunku
-        act.op ??= 'add';
-        act.itemId ??= '';
-        act.qty ??= 1;
-        const inOp = sel([{value:'add',label:'add'}, {value:'remove',label:'remove'}], act.op);
-        const inId = txt(act.itemId, 'itemId //todo');
-        const inQty = num(act.qty);
-        appendRow('op', inOp);
-        appendRow('itemId', inId, '//todo: parametryzacja itemów');
-        appendRow('qty', inQty);
-        inOp.addEventListener('change', () => act.op = inOp.value);
-        inId.addEventListener('input', () => act.itemId = inId.value);
-        inQty.addEventListener('change', () => act.qty = parseInt(inQty.value,10) || 0);
-        break;
-      }
-      default: {
-        const p = document.createElement('div');
-        p.textContent = 'Brak edytora dla tej akcji.';
-        container.appendChild(p);
-      }
-    }
-  }
-
-  function addActionToCurrent(action){
-    const s = getOverlayTarget(); if (!s) return;
-    s.props.actions.push(action);
-  }
-  function removeActionAt(idx){
-    const s = getOverlayTarget(); if (!s) return;
-    s.props.actions.splice(idx, 1);
-    rebuildFlow();
-  }
-  function duplicateActionAt(idx){
-    const s = getOverlayTarget(); if (!s) return;
-    const copy = deepClone(s.props.actions[idx]);
-    s.props.actions.splice(idx+1, 0, copy);
-    rebuildFlow();
-  }
-  function moveAction(from, to){
-    const s = getOverlayTarget(); if (!s) return;
-    const arr = s.props.actions;
-    if (from<0 || to<0 || from>=arr.length || to>=arr.length) return;
-    const [row] = arr.splice(from,1);
-    arr.splice(to,0,row);
-    rebuildFlow();
-  }
-  function toggleAllItems(collapsed){
-    $$('.flow__item', flowList).forEach(el => {
-      el.classList.toggle('is-collapsed', !!collapsed);
-    });
-  }
-
-  function makeAction(type){
-    switch(type){
-      case 'move': return { type:'move', dx:0, dy:0, speed:4 };
-      case 'dialog': return { type:'dialog', text:'', speaker:'' };
-      case 'sleep': return { type:'sleep', ms:500, skippable:false };
-      case 'battle': return { type:'battle', encounter:'' /* //todo */ };
-      case 'jump': return { type:'jump', height:1, dx:0, dy:0, duration:300 };
-      case 'inventory': return { type:'inventory', op:'add', itemId:'', qty:1 /* //todo */ };
-      default: return { type:'unknown' };
-    }
-  }
-
-  // ========== Variables ==========
-  async function loadVariables(){
-    try {
-      const res = await fetch('./assets/variables.json', { cache: 'no-store' });
-      if (res.ok){
-        const data = await res.json();
-        state.vars = normalizeVars(data);
-      } else {
-        state.vars = makeDefaultVars();
-      }
-    } catch {
-      state.vars = makeDefaultVars();
-    }
-    state.varsLoaded = true;
-    renderVarsTable();
-  }
-
-  function normalizeVars(data){
-    // Accept either array of objects or object map {id:{...}}
-    let arr = [];
-    if (Array.isArray(data)) arr = data;
-    else if (data && typeof data === 'object'){
-      arr = Object.keys(data).map(k => ({ id: Number(k), ...data[k]}));
-    }
-    // Coerce fields and set defaults
-    return arr.map((v,i) => ({
-      id: v.id ?? (i+1),
-      name: v.name ?? `Variable ${i+1}`,
-      type: v.type ?? 'int',
-      options: Array.isArray(v.options) ? v.options.slice() : [],
-      default: v.default ?? defaultForType(v.type ?? 'int')
-    }));
-  }
-
-  function makeDefaultVars(){
-    const N = 1000;
-    return Array.from({length:N}, (_,i)=> ({
-      id: i+1,
-      name: `Variable ${i+1}`,
-      type: 'int',
-      options: [],
-      default: 0
-    }));
-  }
-
-  function defaultForType(t){
-    switch(t){
-      case 'bool': return false;
-      case 'float': return 0;
-      case 'enum': return '';
-      case 'enum_flags': return [];
-      case 'int':
-      default: return 0;
-    }
-  }
-
-  function renderVarsTable(){
-    varsTableBody.innerHTML = '';
-    if (!state.varsLoaded) return;
-    const q = (state.varsFilter.q || '').toLowerCase();
-    const t = state.varsFilter.type || '';
-
-    const rows = state.vars.filter(v => {
-      const matchesQ = !q || (String(v.id).includes(q) || (v.name||'').toLowerCase().includes(q));
-      const matchesT = !t || v.type===t;
-      return matchesQ && matchesT;
-    });
-
-    rows.forEach(v => varsTableBody.appendChild(buildVarRow(v)));
-  }
-
-  function buildVarRow(v){
-    const tr = document.createElement('tr');
-
-    // id
-    const cId = document.createElement('td'); cId.textContent = String(v.id); tr.appendChild(cId);
-
-    // name
-    const cName = document.createElement('td');
-    cName.className = 'vars__name';
-    const inName = document.createElement('input');
-    inName.type = 'text'; inName.value = v.name || '';
-    inName.addEventListener('input', () => v.name = inName.value);
-    cName.appendChild(inName);
-    tr.appendChild(cName);
-
-    // type
-    const cType = document.createElement('td');
-    cType.className = 'vars__type';
-    const inType = document.createElement('select');
-    ['int','bool','float','enum','enum_flags'].forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t; opt.textContent = t;
-      if (v.type === t) opt.selected = true;
-      inType.appendChild(opt);
-    });
-    inType.addEventListener('change', () => {
-      v.type = inType.value;
-      // reset default/options sensibly
-      if (v.type==='enum' || v.type==='enum_flags'){
-        v.options = v.options && v.options.length ? v.options : ['A','B','C'];
-        v.default = v.type==='enum' ? (v.options[0] || '') : [];
-      } else {
-        v.options = [];
-        v.default = defaultForType(v.type);
-      }
-      // rebuild the row UI since cells differ per type
-      tr.replaceWith(buildVarRow(v));
-    });
-    cType.appendChild(inType);
-    tr.appendChild(cType);
-
-    // options / flags
-    const cOpts = document.createElement('td');
-    if (v.type==='enum' || v.type==='enum_flags'){
-      const inOpts = document.createElement('input');
-      inOpts.type = 'text';
-      inOpts.placeholder = 'opcje, rozdzielone przecinkami';
-      inOpts.value = (v.options || []).join(', ');
-      inOpts.addEventListener('change', () => {
-        v.options = inOpts.value.split(',').map(s => s.trim()).filter(Boolean);
-        // keep default valid
-        if (v.type==='enum'){
-          if (!v.options.includes(v.default)) v.default = v.options[0] || '';
-        } else if (v.type==='enum_flags'){
-          v.default = Array.isArray(v.default) ? v.default.filter(x => v.options.includes(x)) : [];
-        }
-        tr.replaceWith(buildVarRow(v));
-      });
-      cOpts.appendChild(inOpts);
-
-      // inline tags for flags
-      if (v.type==='enum_flags'){
-        const tagsWrap = document.createElement('div');
-        tagsWrap.className = 'tags';
-        (v.options || []).forEach(opt => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'tag' + (Array.isArray(v.default) && v.default.includes(opt) ? ' is-on' : '');
-          b.textContent = opt;
-          b.addEventListener('click', () => {
-            const arr = Array.isArray(v.default) ? v.default : [];
-            const on = arr.includes(opt);
-            if (on) v.default = arr.filter(x => x!==opt);
-            else v.default = [...arr, opt];
-            b.classList.toggle('is-on', !on);
-          });
-          tagsWrap.appendChild(b);
-        });
-        cOpts.appendChild(tagsWrap);
-      }
-    } else {
-      cOpts.innerHTML = '<span class="pill">—</span>';
-    }
-    tr.appendChild(cOpts);
-
-    // default
-    const cDef = document.createElement('td');
-    if (v.type==='int'){
-      const inp = document.createElement('input'); inp.type='number'; inp.step='1'; inp.value = String(v.default|0);
-      inp.addEventListener('change', () => v.default = parseInt(inp.value,10) || 0);
-      cDef.appendChild(inp);
-    } else if (v.type==='float'){
-      const inp = document.createElement('input'); inp.type='number'; inp.step='0.01'; inp.value = String(Number(v.default||0));
-      inp.addEventListener('change', () => v.default = Number(inp.value) || 0);
-      cDef.appendChild(inp);
-    } else if (v.type==='bool'){
-      const inp = document.createElement('input'); inp.type='checkbox'; inp.checked = !!v.default;
-      inp.addEventListener('change', () => v.default = !!inp.checked);
-      cDef.appendChild(inp);
-    } else if (v.type==='enum'){
-      const sel = document.createElement('select');
-      (v.options||[]).forEach(o => {
-        const opt = document.createElement('option'); opt.value=o; opt.textContent=o; if (o===v.default) opt.selected = true; sel.appendChild(opt);
-      });
-      sel.addEventListener('change', () => v.default = sel.value);
-      cDef.appendChild(sel);
-    } else if (v.type==='enum_flags'){
-      // summary pill
-      const pill = document.createElement('span'); pill.className='pill';
-      const sync = () => pill.textContent = (Array.isArray(v.default)&&v.default.length) ? v.default.join(' | ') : '(none)';
-      sync();
-      cDef.appendChild(pill);
-    }
-    tr.appendChild(cDef);
-
-    return tr;
-  }
-
-  function appendVariable(){
-    const maxId = state.vars.reduce((m,v)=> Math.max(m, Number(v.id)||0), 0);
-    state.vars.push({
-      id: maxId + 1,
-      name: `Variable ${maxId+1}`,
-      type: 'int',
-      options: [],
-      default: 0
-    });
-  }
-
-  function exportVariablesJSON(){
-    const blob = new Blob([JSON.stringify(state.vars, null, 2)], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'variables.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  }
-
-  async function importVariablesJSON(e){
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    try{
-      const text = await file.text();
-      const data = JSON.parse(text);
-      state.vars = normalizeVars(data);
-      state.varsLoaded = true;
-      renderVarsTable();
-      notify('Zaimportowano variables.json');
-    } catch(err){
-      alert('Niepoprawny JSON variables');
-    } finally {
-      e.target.value = '';
-    }
-  }
-
-  // ========== Misc helpers ==========
-  function snapshotAll(){
-    const snap = { W: state.mapW, H: state.mapH, layers: {}, scripts: deepClone(state.scripts) };
-    for (const L of VISUAL_LAYERS){ snap.layers[L] = deepClone(state.layers[L]); }
-    return snap;
-  }
-  function restoreSnapshot(snap){
-    state.mapW = snap.W; state.mapH = snap.H; mapWInput.value = snap.W; mapHInput.value = snap.H;
-    for (const L of VISUAL_LAYERS){ state.layers[L] = deepClone(snap.layers[L]); }
-    state.scripts = deepClone(snap.scripts);
-    resizeMapCanvas();
-  }
-
-  function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
-  function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
-  function cloneTile(t){ return t? {r:t.r|0, g:t.g|0, b:t.b|0, a:t.a|0} : null; }
-  function tilesEqual(a,b){ if (!a && !b) return true; if (!a || !b) return false; return a.r===b.r && a.g===b.g && a.b===b.b && a.a===b.a; }
-  function tryParseJSON(s){ if (!s || !s.trim()) return {}; try { return JSON.parse(s); } catch(e){ alert('Props: błędny JSON'); return undefined; } }
-
   function notify(msg){
     if (!toast) return alert(msg);
     toast.textContent = msg;
@@ -1842,8 +1039,282 @@
     clearTimeout(notify._t);
     notify._t = setTimeout(() => toast.classList.add('hidden'), 1800);
   }
+  const g = (typeof window!=='undefined'?window:globalThis);
 
-  // Boot overlay variables if overlay already opened (e.g., hot reload)
-  if (state.ovOpen && !state.varsLoaded) loadVariables();
+  g.__mapEditor__ = g.__mapEditor__ || {};
+  const api = g.__mapEditor__;
 
+  if (!api.register){
+    api.register = function register(payload){
+      Object.assign(api, payload||{});
+    };
+  }
+
+  // ---------- Utils dostępne globalnie ----------
+  function tryParseJSON(txt){
+    if (typeof txt !== 'string') return undefined;
+    try{ return JSON.parse(txt); } catch { return undefined; }
+  }
+  function downloadText(filename, text){
+    const blob = new Blob([text], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  }
+  function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max,v)); }
+
+  // Zapis/odczyt pojedynczej mapy w lekkim formacie
+  function captureSingleMap(){
+    const { state } = api;
+    const data = {
+      id: state && state.project && state.project.maps ? (state.project.maps[state.project.current]?.id || 'map') : (document.getElementById('mapName')?.value || 'map'),
+      name: document.getElementById('mapName')?.value || 'map',
+      tileset: state?.tileset?.url || './assets/sprites/tileset.png',
+      tileSize: state?.tileSize || 32,
+      width: state?.mapW || 0,
+      height: state?.mapH || 0,
+      layers: {},
+      scripts: deepClone(state?.scripts || [])
+    };
+    const V = ['ground','details','details2','ceiling','ceiling2'];
+    for (const L of V) data.layers[L] = deepClone(state?.layers?.[L] || []);
+    return data;
+  }
+
+  function applySingleMap(mapObj){
+    const { state, helpers } = api; if (!state || !helpers) return;
+    const { resizeMap, allocateLayerGrid, render } = helpers;
+
+    document.getElementById('mapName') && (document.getElementById('mapName').value = mapObj.name || mapObj.id || 'map');
+    state.tileSize = mapObj.tileSize || state.tileSize || 32;
+    const tileSizeInput = document.getElementById('tileSize');
+    if (tileSizeInput) tileSizeInput.value = state.tileSize;
+
+    // tileset zostawiamy – 1/2 już ma loader; tylko ustawiamy url
+    state.tileset = state.tileset || {};
+    state.tileset.url = mapObj.tileset || state.tileset.url;
+
+    resizeMap(mapObj.width|0, mapObj.height|0, false);
+    const V = ['ground','details','details2','ceiling','ceiling2'];
+    for (const L of V){
+      if (mapObj.layers && mapObj.layers[L]) state.layers[L] = deepClone(mapObj.layers[L]);
+      else state.layers[L] = allocateLayerGrid(state.mapW, state.mapH);
+    }
+    state.scripts = Array.isArray(mapObj.scripts) ? mapObj.scripts.map(s=>({ kind: s.kind||'script', x:s.x|0, y:s.y|0, props: s.props||{} })) : [];
+    render && render();
+  }
+
+  // Snapshot/restore (używane przy resize w 1/2)
+  function snapshotAll(){
+    const { state } = api;
+    if (!state) return null;
+    const V = ['ground','details','details2','ceiling','ceiling2'];
+    const layers = {};
+    for (const L of V) layers[L] = deepClone(state.layers[L] || []);
+    return { W: state.mapW, H: state.mapH, tileSize: state.tileSize, layers, scripts: deepClone(state.scripts||[]) };
+  }
+
+  function restoreSnapshot(snap){
+    const { state, helpers } = api; if (!state || !helpers || !snap) return;
+    const { render, resizeMap } = helpers;
+    resizeMap(snap.W|0, snap.H|0, false);
+    state.tileSize = snap.tileSize || state.tileSize;
+    const V = ['ground','details','details2','ceiling','ceiling2'];
+    for (const L of V) state.layers[L] = deepClone(snap.layers[L] || []);
+    state.scripts = deepClone(snap.scripts||[]);
+    const tileSizeInput = document.getElementById('tileSize');
+    tileSizeInput && (tileSizeInput.value = state.tileSize);
+    render && render();
+  }
+
+  // Podstawowa obsługa SAVE/LOAD dla aktualnej mapy
+  function saveJSON(){
+    const m = captureSingleMap();
+    downloadText((m.name||'map') + '.json', JSON.stringify(m, null, 2));
+  }
+  async function loadJSON(file){
+    if (!file) return;
+    try{
+      const txt = await file.text();
+      const obj = JSON.parse(txt);
+      // Obsłuż zarówno single-map, jak i "project.json"
+      if (obj && Array.isArray(obj.maps)){
+        // uproszczone – bierzemy pierwszą mapę
+        applySingleMap(obj.maps[0]);
+      } else {
+        applySingleMap(obj);
+      }
+    } catch {
+      alert('Błędny plik JSON.');
+    } finally {
+      const input = document.getElementById('loadJsonInput');
+      if (input) input.value = '';
+    }
+  }
+
+  // ---------- Overlay dla obiektów „Scripts” (prosty JSON) ----------
+  function initOverlayUI(){
+    const ov = document.getElementById('scriptOverlay') || document.getElementById('overlay');
+    const ovClose = document.getElementById('scriptOvClose') || document.getElementById('overlayClose');
+    const ovSave  = document.getElementById('scriptOvSave') || document.getElementById('overlaySave');
+    const txt = document.getElementById('scriptOvJson') || document.getElementById('overlayJson');
+    if (!ov || !ovClose || !ovSave || !txt) return; // brak overlayu – pomiń
+
+    ovClose.addEventListener('click', ()=>{ ov.style.display='none'; });
+    ovSave.addEventListener('click', ()=>{
+      const sel = api.state?.selectedScript;
+      if (!sel) { ov.style.display='none'; return; }
+      const s = (api.state.scripts||[]).find(e => e.x===sel.x && e.y===sel.y);
+      const parsed = tryParseJSON(txt.value);
+      if (s && parsed!==undefined){ s.props = parsed; api.helpers?.render?.(); }
+      ov.style.display='none';
+    });
+
+    // zapamiętaj w api do użycia w openOverlayFor
+    api._overlay = { el: ov, jsonEl: txt };
+  }
+
+  function openOverlayFor(x,y){
+    const { state } = api;
+    const overlay = api._overlay;
+    if (!overlay) return; // brak overlayu
+    const s = (state.scripts||[]).find(e => e.x===x && e.y===y);
+    overlay.jsonEl.value = JSON.stringify(s?.props || {}, null, 2);
+    overlay.el.style.display = 'flex';
+  }
+
+  // ---------- Panel zmiennych (opcjonalny) ----------
+  function initVarsUI(){
+    const q = document.getElementById('varsSearch');
+    const t = document.getElementById('varsTypeFilter');
+    const r = document.getElementById('varsResetFilter');
+    const add = document.getElementById('varsAddBtn');
+    const exp = document.getElementById('varsExportBtn');
+    const imp = document.getElementById('varsImportInput');
+    const tbody = document.getElementById('varsTableBody');
+    if (!tbody) return;
+
+    const state = (api.state.varsLoaded ? api.state : Object.assign(api.state, { varsLoaded:true, vars: [] }));
+
+    function renderTable(){
+      const query = (q?.value||'').toLowerCase();
+      const typeF = t?.value||'';
+      tbody.innerHTML = '';
+      for (const [idx,v] of state.vars.entries()){
+        if (query && !(`${v.name}`.toLowerCase().includes(query))) continue;
+        if (typeF && v.type!==typeF) continue;
+
+        const tr = document.createElement('tr');
+
+        const tdName = document.createElement('td');
+        const iName = document.createElement('input'); iName.value=v.name||''; iName.addEventListener('change',()=>{ v.name = iName.value; });
+        tdName.appendChild(iName);
+
+        const tdType = document.createElement('td');
+        const sel = document.createElement('select');
+        ['int','float','bool','enum','enum_flags','string'].forEach(tt=>{
+          const o=document.createElement('option'); o.value=tt; o.textContent=tt; if (tt===v.type) o.selected=true; sel.appendChild(o);
+        });
+        sel.addEventListener('change', ()=>{ v.type = sel.value; bumpDefault(v); renderTable(); });
+        tdType.appendChild(sel);
+
+        const tdOpts = document.createElement('td');
+        const opt = document.createElement('input'); opt.placeholder='opcja1,opcja2 (dla enum/flags)'; opt.value = (v.options||[]).join(',');
+        opt.addEventListener('change', ()=>{ v.options = opt.value.split(',').map(s=>s.trim()).filter(Boolean); bumpDefault(v); renderTable(); });
+        tdOpts.appendChild(opt);
+
+        const tdDef = document.createElement('td');
+        const idef = document.createElement('input'); idef.value = String(v.default ?? '');
+        idef.addEventListener('change', ()=>{
+          const pv = parseValueByType(idef.value, v.type, v.options);
+          if (pv!==undefined) v.default = pv; else alert('Nieprawidłowa wartość dla typu');
+        });
+        tdDef.appendChild(idef);
+
+        const tdDel = document.createElement('td');
+        const del = document.createElement('button'); del.textContent='Usuń'; del.className='danger';
+        del.addEventListener('click', ()=>{ state.vars.splice(idx,1); renderTable(); });
+        tdDel.appendChild(del);
+
+        tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdOpts); tr.appendChild(tdDef); tr.appendChild(tdDel);
+        tbody.appendChild(tr);
+      }
+    }
+    function bumpDefault(v){
+      if (v.type==='int') v.default = Number.isInteger(v.default)?v.default:0;
+      else if (v.type==='float') v.default = (typeof v.default==='number')?v.default:0.0;
+      else if (v.type==='bool') v.default = !!v.default;
+      else if (v.type==='enum') v.default = (v.options||[])[0] ?? '';
+      else if (v.type==='enum_flags') v.default = 0;
+      else if (v.type==='string') v.default = String(v.default ?? '');
+    }
+    function parseValueByType(val, type, options){
+      if (type==='int'){
+        const n = parseInt(val,10); if (Number.isNaN(n)) return undefined; return n;
+      } else if (type==='float'){
+        const n = parseFloat(val); if (Number.isNaN(n)) return undefined; return n;
+      } else if (type==='bool'){
+        const s = String(val).toLowerCase(); return (s==='true'||s==='1'||s==='yes');
+      } else if (type==='enum'){
+        return (options||[]).includes(val) ? val : (options?.[0] ?? '');
+      } else if (type==='enum_flags'){
+        const n = parseInt(val,10); if (Number.isNaN(n)) return 0; return n;
+      } else if (type==='string'){
+        return String(val);
+      }
+      return val;
+    }
+
+    q && q.addEventListener('input', renderTable);
+    t && t.addEventListener('change', renderTable);
+    r && r.addEventListener('click', ()=>{ if(q) q.value=''; if(t) t.value=''; renderTable(); });
+
+    add && add.addEventListener('click', ()=>{
+      state.vars.push({ id: `var_${Date.now()}`, name:'var_name', type:'int', default:0, options:[] });
+      renderTable();
+    });
+
+    exp && exp.addEventListener('click', ()=>{
+      downloadText('variables.json', JSON.stringify({ variables: state.vars }, null, 2));
+    });
+
+    imp && imp.addEventListener('change', async (e)=>{
+      const f = e.target.files?.[0]; if (!f) return;
+      try{
+        const txt = await f.text();
+        const obj = JSON.parse(txt);
+        if (Array.isArray(obj)) state.vars = obj;
+        else if (Array.isArray(obj.variables)) state.vars = obj.variables;
+        else throw new Error('format');
+        renderTable();
+      } catch {
+        alert('Błędny plik variables.json');
+      } finally {
+        e.target.value='';
+      }
+    });
+
+    renderTable();
+  }
+
+  g.saveJSON = saveJSON;
+  g.loadJSON = loadJSON;
+  g.snapshotAll = snapshotAll;
+  g.restoreSnapshot = restoreSnapshot;
+  g.openOverlayFor = openOverlayFor;
+  g.tryParseJSON = tryParseJSON; // na wypadek gdy 1/2 wywołuje
+
+  // Uruchomienia zależne od DOM (po załadowaniu)
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', ()=>{
+      initOverlayUI();
+      initVarsUI();
+    });
+  } else {
+    initOverlayUI();
+    initVarsUI();
+  }
 })();
