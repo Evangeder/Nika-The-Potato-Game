@@ -29,7 +29,7 @@
     layers: { ground: null, details: null, details2: null, ceiling: null, ceiling2: null },
     scripts: [],             // [{kind, x, y, props}]
     selectedScript: null,    // {x,y} (ostatnio kliknięty/pipetowany)
-    scriptBrush: { kind: 'teleport', props: {} },
+    scriptBrush: { kind: 'script', props: {} },
 
     mouseDown: false, mouseButton: 0,
     shapeDrag: { active:false, startX:0, startY:0, endX:0, endY:0 },
@@ -148,6 +148,10 @@
     resizeMapCanvas();
     updatePickedLabels();
     loadTileset(state.tileset.url);
+    // pokaż panel projektu od razu (potem loadTileset i tak odświeży)
+    initProjectIfEmpty();
+    refreshMapsList();
+
     zoomLabel.textContent = `x${state.zoom}`;
     updateUndoRedoButtons();
     initOverlayUI();
@@ -320,6 +324,7 @@
     mapCanvas.addEventListener('contextmenu', e => e.preventDefault());
     mapCanvas.addEventListener('mousedown', onCanvasDown);
     mapCanvas.addEventListener('mousemove', onCanvasMove);
+    mapCanvas.addEventListener('dblclick', onCanvasDblClick);
     window.addEventListener('mouseup', onCanvasUp);
 
     // Picker
@@ -832,6 +837,11 @@
       const ex = findScriptAt(tx,ty);
       if (ex){
         state.selectedScript = {x:ex.x, y:ex.y};
+        // start drag
+        state.dragScript.active = true;
+        state.dragScript.origX = ex.x;
+        state.dragScript.origY = ex.y;
+        beginAction({ kind:'script-move', layer:'scripts' });
         render();
       } else {
         const parsed = tryParseJSON(scriptProps.value);
@@ -891,6 +901,23 @@
     } else if (state.shapeDrag.active){
       state.shapeDrag.endX = tx; state.shapeDrag.endY = ty; updatePreviewCells();
     }
+  }
+  function onCanvasDblClick(e){
+    if (state.activeLayer!=='scripts') return;
+    const {tx,ty} = tileFromEvent(e);
+    let s = findScriptAt(tx,ty);
+    if (!s){
+      const parsed = tryParseJSON(scriptProps.value);
+      if (parsed!==undefined) state.scriptBrush.props = parsed;
+      s = { kind:'script', x:tx, y:ty, props: deepClone(state.scriptBrush.props) };
+      beginAction({ kind:'script-add', layer:'scripts' });
+      recordScriptChange(tx,ty, null, s);
+      upsertScriptAt(tx,ty,'script', state.scriptBrush.props, false);
+      endAction();
+    }
+    state.selectedScript = {x:tx, y:ty};
+    render();
+    openOverlayFor(tx,ty);
   }
   function onCanvasUp(){
     const wasDraggingScript = state.dragScript.active;
